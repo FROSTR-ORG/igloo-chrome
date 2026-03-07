@@ -1,4 +1,4 @@
-# igloo-ext
+# igloo-chrome
 
 Chrome MV3 signing-device extension for FROSTR.
 
@@ -67,8 +67,8 @@ The extension is packaged without Vite.
 Independent entry bundling is deliberate because Chrome content scripts and injected provider scripts need deterministic single-file outputs.
 
 ## Project docs
-- [CHANGELOG.md](/home/cscott/Repos/frostr/igloo-ext/CHANGELOG.md)
-- [CONTRIBUTING.md](/home/cscott/Repos/frostr/igloo-ext/CONTRIBUTING.md)
-- [SECURITY.md](/home/cscott/Repos/frostr/igloo-ext/SECURITY.md)
-- [TESTING.md](/home/cscott/Repos/frostr/igloo-ext/TESTING.md)
-- [RELEASE.md](/home/cscott/Repos/frostr/igloo-ext/RELEASE.md)
+- [CHANGELOG.md](./CHANGELOG.md)
+- [CONTRIBUTING.md](./CONTRIBUTING.md)
+- [SECURITY.md](./SECURITY.md)
+- [TESTING.md](./TESTING.md)
+- [RELEASE.md](./RELEASE.md)

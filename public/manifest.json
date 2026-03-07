@@ -1,5 +1,5 @@
 {
-  "name": "Igloo Signer",
+  "name": "igloo-chrome",
   "description": "FROSTR browser signing device powered by bifrost-rs",
   "version": "0.1.0",
   "manifest_version": 3,

@@ -12,11 +12,11 @@ function htmlPage() {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Igloo Extension Test Page</title>
+    <title>Igloo Chrome Test Page</title>
   </head>
   <body>
     <main>
-      <h1>Igloo Extension Test Page</h1>
+      <h1>Igloo Chrome Test Page</h1>
       <p id="status">ready</p>
     </main>
   </body>

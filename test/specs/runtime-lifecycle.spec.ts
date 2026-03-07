@@ -69,7 +69,7 @@ async function seedCanonicalProfile(
   const page = await context.newPage();
   try {
     await gotoExtensionPage(page, extensionId, 'options.html');
-    await pwExpect(page.getByText('igloo ext')).toBeVisible();
+    await pwExpect(page.getByText('igloo-chrome')).toBeVisible();
     await page.evaluate(async (nextProfile) => {
       const payload = {
         ...nextProfile,
@@ -98,7 +98,7 @@ async function ensureRuntimeSnapshot(
   const page = await context.newPage();
   try {
     await gotoExtensionPage(page, extensionId, 'options.html');
-    await pwExpect(page.getByText('igloo ext')).toBeVisible();
+    await pwExpect(page.getByText('igloo-chrome')).toBeVisible();
     await page.evaluate(async (nextProfile) => {
       const response = (await chrome.runtime.sendMessage({
         type: 'ext.offscreenRpc',
@@ -289,7 +289,7 @@ test.describe('runtime lifecycle', () => {
     server,
     liveSigner
   }) => {
-    const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'igloo-ext-relaunch-'));
+    const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'igloo-chrome-relaunch-'));
     let firstContext: BrowserContext | null = null;
     let secondContext: BrowserContext | null = null;
 
@@ -342,7 +342,7 @@ test.describe('runtime lifecycle', () => {
     server,
     liveSigner
   }) => {
-    const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'igloo-ext-relaunch-sign-'));
+    const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'igloo-chrome-relaunch-sign-'));
     let firstContext: BrowserContext | null = null;
     let secondContext: BrowserContext | null = null;
 

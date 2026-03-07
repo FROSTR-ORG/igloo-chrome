@@ -115,7 +115,7 @@ export default function OnboardingPage() {
   }
 
   return (
-    <PageLayout header={<AppHeader title="igloo ext" subtitle="browser signing device" />}>
+    <PageLayout header={<AppHeader title="igloo-chrome" subtitle="browser signing device" />}>
       <ContentCard
         title={step === 'instructions' ? undefined : 'Add v2 Onboarding Package'}
         description={

@@ -86,7 +86,7 @@ async function writeHtmlPages() {
   await Promise.all([
     fs.writeFile(
       path.join(distDir, 'options.html'),
-      htmlShell({ title: 'Igloo Extension', script: 'options.js' })
+      htmlShell({ title: 'Igloo Chrome', script: 'options.js' })
     ),
     fs.writeFile(
       path.join(distDir, 'popup.html'),
@@ -107,7 +107,7 @@ async function writeHtmlPages() {
     ),
     fs.writeFile(
       path.join(distDir, 'index.html'),
-      htmlShell({ title: 'Igloo Extension', script: 'options.js' })
+      htmlShell({ title: 'Igloo Chrome', script: 'options.js' })
     )
   ]);
 }

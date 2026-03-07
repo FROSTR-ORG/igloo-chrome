@@ -51,7 +51,7 @@ function PopupApp() {
 
   return (
     <div className="min-h-screen bg-transparent p-4 text-white" style={{ width: 360 }}>
-      <AppHeader title="igloo ext" subtitle="MV3 signer control plane" className="mb-4" />
+      <AppHeader title="igloo-chrome" subtitle="MV3 signer control plane" className="mb-4" />
 
       <Card className="border-blue-900/30 bg-slate-950/80">
         <CardHeader>

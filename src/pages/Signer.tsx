@@ -356,7 +356,7 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
     if (embedded) {
       return emptyState;
     }
-    return <PageLayout header={<AppHeader title="igloo ext" subtitle="browser signing device" />}>{emptyState}</PageLayout>;
+    return <PageLayout header={<AppHeader title="igloo-chrome" subtitle="browser signing device" />}>{emptyState}</PageLayout>;
   }
 
   const content = (
@@ -511,7 +511,7 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
     <PageLayout
       header={
         <AppHeader
-          title="igloo ext"
+          title="igloo-chrome"
           subtitle="dashboard + offscreen signer runtime"
           right={
             <Button variant="ghost" size="sm" onClick={() => setShowClearModal(true)}>

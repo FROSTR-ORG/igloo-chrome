@@ -1,4 +1,4 @@
-export const EXTENSION_SOURCE = 'igloo-ext';
+export const EXTENSION_SOURCE = 'igloo-chrome';
 export const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 export const PROMPT_DOCUMENT_PATH = 'prompt.html';
 export const PROMPT_WIDTH = 448;

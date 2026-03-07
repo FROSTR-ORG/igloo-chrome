@@ -54,7 +54,7 @@ const BIFROST_RS_DIR =
   process.env.BIFROST_RS_DIR ??
   '/home/cscott/Repos/frostr/bifrost-infra/repos/bifrost-rs';
 const DEMO_DIR = path.join(BIFROST_RS_DIR, 'dev', 'demo-2of2');
-const BIFROST_TARGET_DIR = path.join(os.tmpdir(), 'igloo-ext-bifrost-target');
+const BIFROST_TARGET_DIR = path.join(os.tmpdir(), 'igloo-chrome-bifrost-target');
 const BIFROST_BINARY_PATH = path.join(BIFROST_TARGET_DIR, 'debug', 'bifrost');
 const BIFROST_EVENT_KIND = 20_000;
 
@@ -505,7 +505,7 @@ export async function startLiveSignerFixture(): Promise<LiveSignerFixture> {
   const relay = new LocalNostrRelay(randomPort());
   await relay.start();
 
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'igloo-ext-live-'));
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'igloo-chrome-live-'));
   const configPath = await copyDemoResponderConfig(relay.url(), tempRoot);
   const controlSocketPath = path.join(tempRoot, 'control.sock');
   const controlToken = bytesToHex(randomBytes(16));

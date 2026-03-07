@@ -19,7 +19,7 @@ if (packageJson.version !== manifestJson.version) {
 }
 
 const version = packageJson.version;
-const candidateName = `igloo-ext-v${version}-test-candidate`;
+const candidateName = `igloo-chrome-v${version}-test-candidate`;
 const candidateDir = path.join(artifactsDir, candidateName);
 const checksumPath = path.join(artifactsDir, `${candidateName}.sha256`);
 const metadataPath = path.join(artifactsDir, `${candidateName}.json`);

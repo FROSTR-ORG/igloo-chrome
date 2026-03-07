@@ -77,14 +77,14 @@ async function gotoExtensionPage(page: Page, extensionId: string, targetPath: st
 async function openPageForStorage(context: BrowserContext, extensionId: string) {
   const page = await context.newPage();
   await gotoExtensionPage(page, extensionId, 'options.html');
-  await expect(page.getByText('igloo ext')).toBeVisible();
+  await expect(page.getByText('igloo-chrome')).toBeVisible();
   return page;
 }
 
 export const test = base.extend<ExtensionFixtures>({
   context: async ({}, use) => {
     buildExtensionOnce();
-    const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'igloo-ext-pw-'));
+    const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'igloo-chrome-pw-'));
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: 'chromium',
       headless: true,
