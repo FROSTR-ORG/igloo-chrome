@@ -4,7 +4,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promises as fs } from 'node:fs';
 
-import autoprefixer from 'autoprefixer';
 import esbuild from 'esbuild';
 import postcss from 'postcss';
 import tailwindcss from 'tailwindcss';
@@ -52,10 +51,7 @@ async function copyPublic() {
 
 async function buildCss() {
   const input = await fs.readFile(sourceCss, 'utf8');
-  const result = await postcss([
-    tailwindcss({ config: path.join(rootDir, 'tailwind.config.ts') }),
-    autoprefixer
-  ]).process(input, {
+  const result = await postcss([tailwindcss({ config: path.join(rootDir, 'tailwind.config.ts') })]).process(input, {
     from: sourceCss,
     to: distCss
   });
