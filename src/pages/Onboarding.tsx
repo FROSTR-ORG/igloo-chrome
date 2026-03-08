@@ -7,8 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/lib/store';
+import type { ObservabilityEvent } from '@/lib/observability';
 import { OnboardingInstructions } from '@/components/OnboardingInstructions';
-import { DEFAULT_RELAYS, normalizeRelays, validateOnboardCredential } from '@/lib/igloo';
+import {
+  DEFAULT_RELAYS,
+  normalizeRelays,
+  validateOnboardCredential,
+  validateOnboardingPassword
+} from '@/lib/igloo';
 import { cn } from '@/lib/utils';
 
 type OnboardingStep = 'instructions' | 'setup';
@@ -48,11 +54,19 @@ function StepIndicator({ currentStep }: { currentStep: OnboardingStep }) {
   );
 }
 
+function summarizeRecentEvents(events: ObservabilityEvent[]) {
+  return events
+    .slice(-6)
+    .map((event) => `${event.domain}/${event.event}`)
+    .join(' | ');
+}
+
 export default function OnboardingPage() {
-  const { connectOnboarding } = useStore();
+  const { connectOnboarding, lastOnboardingFailure, clearOnboardingFailure } = useStore();
   const [step, setStep] = React.useState<OnboardingStep>('instructions');
   const [keysetName, setKeysetName] = React.useState('');
   const [onboardPackage, setOnboardPackage] = React.useState('');
+  const [onboardPassword, setOnboardPassword] = React.useState('');
   const [relays, setRelays] = React.useState<string>(DEFAULT_RELAYS.join('\n'));
   const [connecting, setConnecting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -67,24 +81,35 @@ export default function OnboardingPage() {
   );
   const relayInput = React.useMemo(() => relays.split(/\s+/).filter(Boolean), [relays]);
   const relayState = React.useMemo(() => normalizeRelays(relayInput), [relayInput]);
+  const passwordValidation = React.useMemo(
+    () => validateOnboardingPassword(onboardPassword),
+    [onboardPassword]
+  );
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const onboard = params.get('onboard');
-    if (!onboard) return;
-    setOnboardPackage(onboard.trim());
-    setStep('setup');
+    const password = params.get('password');
+    if (onboard) {
+      setOnboardPackage(onboard.trim());
+      setStep('setup');
+    }
+    if (password) {
+      setOnboardPassword(password);
+    }
   }, []);
 
   const canConnect =
     keysetName.trim().length > 0 &&
     onboardValidation.isValid &&
+    passwordValidation.isValid &&
     relayState.relays.length > 0;
 
   async function onConnect(e: React.FormEvent) {
     e.preventDefault();
     setConnecting(true);
     setError(null);
+    clearOnboardingFailure();
     setDiagnostics({
       relays: relayState.relays,
       onboardLength: onboardPackage.trim().length
@@ -93,6 +118,7 @@ export default function OnboardingPage() {
       await connectOnboarding({
         keysetName: keysetName.trim(),
         onboardPackage: onboardPackage.trim(),
+        onboardPassword: onboardPassword,
         relays: relayState.relays
       });
     } catch (err) {
@@ -121,7 +147,7 @@ export default function OnboardingPage() {
         description={
           step === 'instructions'
             ? undefined
-            : 'Paste bfonboard package and configure relay endpoints'
+            : 'Paste your encrypted bfonboard package, enter its password, and configure relay endpoints'
         }
       >
         <StepIndicator currentStep={step} />
@@ -161,6 +187,21 @@ export default function OnboardingPage() {
             </div>
 
             <div className="space-y-1.5">
+              <Label className="text-sm text-blue-300">Package Password</Label>
+              <Input
+                type="password"
+                placeholder="Minimum 8 characters"
+                value={onboardPassword}
+                onChange={(e) => setOnboardPassword(e.target.value)}
+                disabled={connecting}
+                required
+              />
+              {!passwordValidation.isValid && onboardPassword && (
+                <p className="text-xs text-red-400">{passwordValidation.error}</p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
               <Label className="text-sm text-blue-300">Relays</Label>
               <Textarea
                 value={relays}
@@ -178,6 +219,16 @@ export default function OnboardingPage() {
             {error && (
               <div className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
                 {error}
+              </div>
+            )}
+
+            {lastOnboardingFailure && (
+              <div className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200 space-y-1">
+                <div>Last onboarding failure</div>
+                <div>Peer: {lastOnboardingFailure.decoded.peerPubkey}</div>
+                <div>Share: {lastOnboardingFailure.decoded.publicKey}</div>
+                <div>Relays: {lastOnboardingFailure.relays.join(', ')}</div>
+                <div>Events: {summarizeRecentEvents(lastOnboardingFailure.recentEvents) || 'none'}</div>
               </div>
             )}
 

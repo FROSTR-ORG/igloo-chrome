@@ -33,11 +33,13 @@ export type PromptDecisionScope = 'once' | 'forever' | 'kind';
 
 export type StoredExtensionProfile = {
   keysetName?: string;
-  onboardPackage: string;
   relays: string[];
   groupPublicKey?: string;
   publicKey?: string;
   peerPubkey?: string;
+  onboardPackage?: string;
+  onboardPassword?: string;
+  runtimeSnapshotJson?: string;
 };
 
 export type StoredPeerPolicy = {

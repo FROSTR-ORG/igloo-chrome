@@ -1,5 +1,9 @@
 import { getChromeApi } from '@/extension/chrome';
 import {
+  loadRuntimeSnapshot as loadStoredRuntimeSnapshot,
+  saveRuntimeSnapshot as saveStoredRuntimeSnapshot
+} from '@/extension/storage';
+import {
   MESSAGE_TYPE,
   isRecord,
   type ProviderMethod,
@@ -18,7 +22,12 @@ import {
   stopSignerNode,
   type NodeWithEvents
 } from '@/lib/igloo';
-import { RUNTIME_SNAPSHOT_LOCAL_STORAGE_KEY } from '@/lib/storage';
+import {
+  createLogger,
+  createObservabilityBuffer,
+  summarizeRuntimeLifecycle,
+  type ObservabilityEvent
+} from '@/lib/observability';
 
 type RpcResult = {
   runtime: 'cold' | 'ready';
@@ -27,7 +36,8 @@ type RpcResult = {
 type SignerSession = {
   key: string;
   node: NodeWithEvents;
-  diagnostics: Array<Record<string, unknown>>;
+  diagnostics: () => ObservabilityEvent[];
+  droppedDiagnostics: () => number;
   detachDiagnostics: () => void;
 };
 
@@ -39,37 +49,15 @@ type RuntimeLifecycleSummary = {
 
 let signerSessionPromise: Promise<SignerSession> | null = null;
 let signerSessionKey: string | null = null;
+const logger = createLogger('igloo.offscreen');
 
-function loadPersistedRuntimeSnapshot(profileKey: string) {
-  try {
-    const raw = globalThis.localStorage?.getItem(RUNTIME_SNAPSHOT_LOCAL_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as {
-      profileKey?: string;
-      snapshotJson?: string;
-    };
-    if (parsed.profileKey !== profileKey || typeof parsed.snapshotJson !== 'string') {
-      return null;
-    }
-    return parsed.snapshotJson;
-  } catch {
-    return null;
-  }
+async function loadPersistedRuntimeSnapshot(profileKey: string) {
+  return await loadStoredRuntimeSnapshot(profileKey);
 }
 
-function savePersistedRuntimeSnapshot(profileKey: string, snapshotJson: string) {
-  try {
-    globalThis.localStorage?.setItem(
-      RUNTIME_SNAPSHOT_LOCAL_STORAGE_KEY,
-      JSON.stringify({
-        profileKey,
-        snapshotJson,
-        updatedAt: Date.now()
-      })
-    );
-  } catch {
-    // Ignore snapshot persistence failures; cold bootstrap remains the fallback.
-  }
+async function savePersistedRuntimeSnapshot(profileKey: string, snapshotJson: string) {
+  // Ignore snapshot persistence failures; cold bootstrap remains the fallback.
+  await saveStoredRuntimeSnapshot(profileKey, snapshotJson).catch(() => undefined);
 }
 
 function toErrorMessage(error: unknown, fallback = 'Unknown error') {
@@ -80,8 +68,15 @@ function toErrorMessage(error: unknown, fallback = 'Unknown error') {
 }
 
 function profileKey(profile: StoredExtensionProfile) {
+  const groupPublicKey =
+    typeof profile.groupPublicKey === 'string' && profile.groupPublicKey.trim()
+      ? profile.groupPublicKey
+      : typeof profile.publicKey === 'string' && profile.publicKey.trim()
+        ? profile.publicKey
+        : undefined;
   return JSON.stringify({
-    onboardPackage: profile.onboardPackage.trim(),
+    groupPublicKey: groupPublicKey?.trim().toLowerCase(),
+    peerPubkey: profile.peerPubkey?.trim().toLowerCase(),
     relays: profile.relays.map((relay) => relay.trim())
   });
 }
@@ -100,39 +95,45 @@ async function stopSignerSession() {
 }
 
 function attachDiagnostics(node: NodeWithEvents) {
-  const diagnostics: Array<Record<string, unknown>> = [];
+  const diagnostics = createObservabilityBuffer(500);
 
-  const pushDiagnostic = (entry: Record<string, unknown>) => {
-    diagnostics.push({
-      ts: Date.now(),
-      ...entry
+  const messageHandler = (payload: unknown) => {
+    if (
+      isRecord(payload) &&
+      typeof payload.ts === 'number' &&
+      typeof payload.level === 'string' &&
+      typeof payload.component === 'string' &&
+      typeof payload.domain === 'string' &&
+      typeof payload.event === 'string'
+    ) {
+      diagnostics.push(payload as ObservabilityEvent);
+      return;
+    }
+
+    const event = logger.warn('runtime', 'unstructured_message', {
+      payload: isRecord(payload) ? payload : { value: payload }
     });
-    if (diagnostics.length > 200) {
-      diagnostics.splice(0, diagnostics.length - 200);
+    if (event) {
+      diagnostics.push(event);
     }
   };
 
-  const messageHandler = (payload: unknown) => {
-    pushDiagnostic({
-      channel: 'message',
-      payload: isRecord(payload) ? payload : { value: payload }
-    });
-  };
-
   const errorHandler = (payload: unknown) => {
-    pushDiagnostic({
-      channel: 'error',
-      payload: {
-        message: toErrorMessage(payload)
-      }
+    const event = logger.error('runtime', 'node_error', {
+      error_message: toErrorMessage(payload)
     });
+    if (event) {
+      diagnostics.push(event);
+    }
   };
 
   node.on('message', messageHandler);
   node.on('error', errorHandler);
 
   return {
-    diagnostics,
+    push: diagnostics.push,
+    diagnostics: diagnostics.snapshot,
+    dropped: diagnostics.dropped,
     detach: () => {
       if (typeof node.off === 'function') {
         node.off('message', messageHandler);
@@ -145,50 +146,23 @@ function attachDiagnostics(node: NodeWithEvents) {
   };
 }
 
-function getLifecycleSummary(diagnostics: Array<Record<string, unknown>>): RuntimeLifecycleSummary {
-  for (let index = diagnostics.length - 1; index >= 0; index -= 1) {
-    const entry = diagnostics[index];
-    const payload = isRecord(entry.payload) ? entry.payload : null;
-    if (!payload || typeof payload.tag !== 'string') continue;
-
-    if (payload.tag === '/runtime/restore') {
-      return {
-        bootMode: 'restored',
-        reason: null,
-        updatedAt: typeof entry.ts === 'number' ? entry.ts : null
-      };
-    }
-
-    if (payload.tag === '/runtime/restore-skipped') {
-      return {
-        bootMode: 'cold_boot',
-        reason: typeof payload.reason === 'string' ? payload.reason : null,
-        updatedAt: typeof entry.ts === 'number' ? entry.ts : null
-      };
-    }
-
-    if (payload.tag === '/runtime/bootstrap') {
-      return {
-        bootMode: 'cold_boot',
-        reason: null,
-        updatedAt: typeof entry.ts === 'number' ? entry.ts : null
-      };
-    }
-  }
-
-  return {
-    bootMode: 'unknown',
-    reason: null,
-    updatedAt: null
-  };
+function getLifecycleSummary(diagnostics: ObservabilityEvent[]): RuntimeLifecycleSummary {
+  return summarizeRuntimeLifecycle(diagnostics);
 }
 
 async function persistSessionSnapshot(session: Pick<SignerSession, 'key' | 'node'>) {
-  try {
-    const snapshot = getRuntimeSnapshot(session.node);
-    savePersistedRuntimeSnapshot(session.key, JSON.stringify(snapshot));
-  } catch {
-    // Ignore snapshot export failures; cold bootstrap remains the fallback.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const snapshot = getRuntimeSnapshot(session.node);
+      await savePersistedRuntimeSnapshot(session.key, JSON.stringify(snapshot));
+      return;
+    } catch {
+      if (attempt === 2) {
+        // Ignore snapshot export failures; cold bootstrap remains the fallback.
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
   }
 }
 
@@ -203,17 +177,56 @@ async function ensureSignerSession(profile: StoredExtensionProfile) {
   signerSessionKey = nextKey;
   signerSessionPromise = Promise.resolve()
     .then(async () => {
-      const snapshotJson = loadPersistedRuntimeSnapshot(nextKey);
-      const node = createSignerNode({
-        onboardPackage: profile.onboardPackage,
-        relays: profile.relays
-      }, {
-        runtimeSnapshotJson: snapshotJson
-      });
+      const snapshotJson =
+        typeof profile.runtimeSnapshotJson === 'string' && profile.runtimeSnapshotJson.trim().length > 0
+          ? profile.runtimeSnapshotJson
+          : await loadPersistedRuntimeSnapshot(nextKey);
+      const snapshotAvailable = typeof snapshotJson === 'string' && snapshotJson.trim().length > 0;
+      const node = (() => {
+        if (snapshotAvailable) {
+          return createSignerNode(
+            {
+              mode: 'persisted',
+              relays: profile.relays
+            },
+            {
+              runtimeSnapshotJson: snapshotJson
+            }
+          );
+        }
+        if (
+          typeof profile.onboardPackage === 'string' &&
+          typeof profile.onboardPassword === 'string' &&
+          profile.onboardPackage.trim()
+        ) {
+          return createSignerNode({
+            mode: 'onboarding',
+            onboardPackage: profile.onboardPackage,
+            onboardPassword: profile.onboardPassword,
+            relays: profile.relays
+          });
+        }
+        throw new Error('No runtime snapshot found. Re-import your onboarding package.');
+      })();
       const attached = attachDiagnostics(node);
+      const bootstrapStart = logger.info('runtime', 'bootstrap_begin', {
+        mode: snapshotAvailable ? 'persisted' : 'onboarding',
+        profile_key: nextKey
+      });
+      if (bootstrapStart) {
+        attached.push(bootstrapStart);
+      }
       try {
         await connectSignerNode(node);
       } catch (error) {
+        const bootstrapFailure = logger.error('runtime', 'bootstrap_failed', {
+          mode: snapshotAvailable ? 'persisted' : 'onboarding',
+          profile_key: nextKey,
+          error_message: toErrorMessage(error)
+        });
+        if (bootstrapFailure) {
+          attached.push(bootstrapFailure);
+        }
         attached.detach();
         throw error;
       }
@@ -221,6 +234,7 @@ async function ensureSignerSession(profile: StoredExtensionProfile) {
         key: nextKey,
         node,
         diagnostics: attached.diagnostics,
+        droppedDiagnostics: attached.dropped,
         detachDiagnostics: attached.detach
       };
       await persistSessionSnapshot(session);
@@ -254,7 +268,16 @@ async function decodeProfile(profile: StoredExtensionProfile) {
     peerPubkey:
       typeof profile.peerPubkey === 'string' && profile.peerPubkey.trim()
         ? profile.peerPubkey.trim().toLowerCase()
-        : (await decodeOnboardingProfile(profile.onboardPackage.trim())).peerPubkey
+        : typeof profile.onboardPackage === 'string' &&
+            typeof profile.onboardPassword === 'string' &&
+            profile.onboardPackage.trim()
+          ? (
+              await decodeOnboardingProfile(
+                profile.onboardPackage.trim(),
+                profile.onboardPassword
+              )
+            ).peerPubkey
+          : ''
   };
 }
 
@@ -324,7 +347,7 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
       let snapshotError: string | null = null;
       try {
         snapshot = getRuntimeSnapshot(session.node);
-        savePersistedRuntimeSnapshot(session.key, JSON.stringify(snapshot));
+        await savePersistedRuntimeSnapshot(session.key, JSON.stringify(snapshot));
       } catch (error) {
         snapshotError = toErrorMessage(error);
       }
@@ -333,7 +356,7 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
         status: getRuntimeStatus(session.node),
         snapshot,
         snapshotError,
-        lifecycle: getLifecycleSummary(session.diagnostics)
+        lifecycle: getLifecycleSummary(session.diagnostics())
       };
     }
     case 'runtime.diagnostics': {
@@ -346,7 +369,8 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
       const session = await signerSessionPromise;
       return {
         runtime: 'ready' as const,
-        diagnostics: session.diagnostics.slice()
+        diagnostics: session.diagnostics(),
+        dropped: session.droppedDiagnostics()
       };
     }
     case 'profile.decode': {

@@ -71,13 +71,6 @@ export function SettingsPanel({ profile, onResetProfile }: SettingsPanelProps) {
                   Copy Public Key
                 </Button>
               )}
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => void runAction(() => copyText(profile.onboardPackage), 'Onboarding package copied')}
-              >
-                Copy Onboarding Package
-              </Button>
             </div>
           </div>
         )}

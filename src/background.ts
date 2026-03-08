@@ -14,9 +14,12 @@ import {
 } from '@/extension/protocol';
 import {
   loadExtensionProfile,
+  loadRuntimeSnapshot as loadPersistedRuntimeSnapshot,
   resolvePermissionDecision,
-  savePermissionDecision
+  savePermissionDecision,
+  saveRuntimeSnapshot as savePersistedRuntimeSnapshot
 } from '@/extension/storage';
+import { createLogger } from '@/lib/observability';
 
 type PromptState = {
   request: ProviderRequestEnvelope;
@@ -87,12 +90,32 @@ const pendingPrompts = new Map<string, PromptState>();
 const promptWindowMap = new Map<number, string>();
 let creatingOffscreen: Promise<void> | null = null;
 let offscreenCreatedWithoutContextApi = false;
+const logger = createLogger('igloo.background');
 
 function toErrorMessage(error: unknown, fallback = 'Unknown error') {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === 'string' && error.trim()) return error;
   if (isRecord(error) && typeof error.message === 'string') return error.message;
   return fallback;
+}
+
+function profileKey(profile: {
+  groupPublicKey?: string;
+  publicKey?: string;
+  peerPubkey?: string;
+  relays: string[];
+}) {
+  const groupPublicKey =
+    typeof profile.groupPublicKey === 'string' && profile.groupPublicKey.trim()
+      ? profile.groupPublicKey
+      : typeof profile.publicKey === 'string' && profile.publicKey.trim()
+        ? profile.publicKey
+        : undefined;
+  return JSON.stringify({
+    groupPublicKey: groupPublicKey?.trim().toLowerCase(),
+    peerPubkey: profile.peerPubkey?.trim().toLowerCase(),
+    relays: profile.relays.map((relay) => relay.trim())
+  });
 }
 
 function responseOk(result: unknown) {
@@ -135,6 +158,9 @@ async function ensureOffscreenDocument() {
         'Host the bifrost-rs WASM runtime and future long-lived relay sessions outside the MV3 service worker.'
     })
     .then(() => {
+      logger.info('offscreen', 'document_created', {
+        path: OFFSCREEN_DOCUMENT_PATH
+      });
       offscreenCreatedWithoutContextApi = true;
     })
     .finally(() => {
@@ -148,8 +174,30 @@ async function closeOffscreenDocument() {
   const chromeApi = getChromeApi();
   if (!chromeApi?.offscreen?.closeDocument) return;
   try {
+    if (await hasOffscreenDocument()) {
+      logger.info('offscreen', 'document_close_requested');
+      const profile = await loadExtensionProfile();
+      const snapshotResult = await callOffscreen<RuntimeSnapshotResult>('runtime.snapshot').catch(
+        () => null
+      );
+      if (
+        profile &&
+        snapshotResult?.runtime === 'ready' &&
+        snapshotResult.snapshot &&
+        snapshotResult.snapshotError === null
+      ) {
+        logger.info('runtime', 'snapshot_persist_before_close', {
+          profile_key: profileKey(profile)
+        });
+        await savePersistedRuntimeSnapshot(
+          profileKey(profile),
+          JSON.stringify(snapshotResult.snapshot)
+        ).catch(() => undefined);
+      }
+    }
     await chromeApi.offscreen.closeDocument();
   } finally {
+    logger.info('offscreen', 'document_closed');
     offscreenCreatedWithoutContextApi = false;
     creatingOffscreen = null;
   }
@@ -162,6 +210,7 @@ async function callOffscreen<T>(rpcType: string, payload?: Record<string, unknow
   }
 
   await ensureOffscreenDocument();
+  logger.debug('offscreen', 'rpc_begin', { rpc_type: rpcType });
 
   const response = (await chromeApi.runtime.sendMessage({
     type: MESSAGE_TYPE.OFFSCREEN_RPC,
@@ -170,21 +219,40 @@ async function callOffscreen<T>(rpcType: string, payload?: Record<string, unknow
   })) as { ok?: boolean; result?: T; error?: string } | undefined;
 
   if (!response?.ok) {
+    logger.warn('offscreen', 'rpc_failed', {
+      rpc_type: rpcType,
+      error_message: response?.error || 'Offscreen document did not respond'
+    });
     throw new Error(response?.error || 'Offscreen document did not respond');
   }
 
+  logger.debug('offscreen', 'rpc_ok', { rpc_type: rpcType });
   return response.result as T;
 }
 
 async function executeProviderMethod(request: ProviderRequestEnvelope) {
+  logger.info('provider', 'request_execute', {
+    request_id: request.id,
+    method: request.type,
+    host: request.host
+  });
   const profile = await loadExtensionProfile();
   if (!profile) {
     throw new Error('Signer is not configured yet. Open the extension dashboard first.');
   }
+  const snapshotJson = await loadPersistedRuntimeSnapshot(profileKey(profile)).catch(() => null);
+  const runtimeProfile = snapshotJson
+    ? {
+        ...profile,
+        runtimeSnapshotJson: snapshotJson
+      }
+    : profile;
 
   switch (request.type) {
     case MESSAGE_TYPE.NOSTR_GET_PUBLIC_KEY: {
-      const decoded = await callOffscreen<{ publicKey: string }>('profile.decode', { profile });
+      const decoded = await callOffscreen<{ publicKey: string }>('profile.decode', {
+        profile: runtimeProfile
+      });
       return decoded.publicKey;
     }
     case MESSAGE_TYPE.NOSTR_GET_RELAYS:
@@ -193,7 +261,7 @@ async function executeProviderMethod(request: ProviderRequestEnvelope) {
       );
     default:
       return await callOffscreen('nostr.execute', {
-        profile,
+        profile: runtimeProfile,
         method: request.type,
         params: request.params ?? {}
       });
@@ -217,6 +285,11 @@ async function requestPermission(request: ProviderRequestEnvelope) {
   });
 
   return await new Promise<boolean>(async (resolve, reject) => {
+    logger.info('permission', 'prompt_open', {
+      request_id: request.id,
+      method: request.type,
+      host: request.host
+    });
     pendingPrompts.set(request.id, { request, resolve });
     try {
       const created = await createWindow({
@@ -251,8 +324,18 @@ async function handleProviderRequest(request: ProviderRequestEnvelope) {
   await ensureOffscreenDocument();
   const allowed = await ensurePermission(request);
   if (!allowed) {
+    logger.warn('permission', 'request_denied', {
+      request_id: request.id,
+      method: request.type,
+      host: request.host
+    });
     throw new Error('User denied the request');
   }
+  logger.info('permission', 'request_allowed', {
+    request_id: request.id,
+    method: request.type,
+    host: request.host
+  });
   return await executeProviderMethod(request);
 }
 
@@ -277,6 +360,11 @@ async function handlePromptResponse(message: PromptResponseMessage) {
   }
 
   pending.resolve(message.allow);
+  logger.info('permission', 'prompt_resolved', {
+    request_id: message.id,
+    scope: message.scope,
+    allow: message.allow
+  });
 
   if (typeof pending.windowId === 'number' && chromeApi?.windows?.remove) {
     try {
@@ -340,6 +428,7 @@ async function getStatusSnapshot() {
 const chromeApi = getChromeApi();
 
 chromeApi?.runtime?.onInstalled?.addListener((details) => {
+  logger.info('extension', 'installed', { reason: details.reason });
   if (details.reason === 'install') {
     void chromeApi.runtime?.openOptionsPage?.();
   }
@@ -347,6 +436,7 @@ chromeApi?.runtime?.onInstalled?.addListener((details) => {
 });
 
 chromeApi?.runtime?.onStartup?.addListener(() => {
+  logger.info('extension', 'startup');
   void ensureOffscreenDocument();
 });
 
@@ -357,6 +447,7 @@ chromeApi?.windows?.onRemoved?.addListener((windowId) => {
   const pending = pendingPrompts.get(requestId);
   if (!pending) return;
   pendingPrompts.delete(requestId);
+  logger.warn('permission', 'prompt_window_closed', { request_id: requestId, window_id: windowId });
   pending.resolve(false);
 });
 

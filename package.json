@@ -1,13 +1,13 @@
 {
   "name": "igloo-chrome",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "node ./scripts/build.mjs",
     "build": "node ./scripts/build.mjs",
     "build:bridge-wasm": "./scripts/build-bridge-wasm.sh",
-    "test:e2e": "playwright test -c test/playwright.config.ts",
+    "test:e2e": "npm --prefix ../../test run test:e2e:igloo-chrome",
     "test:ci": "npm run build:bridge-wasm && npm run test:e2e && npm run build",
     "package": "node ./scripts/package-release.mjs",
     "release:candidate": "npm run build:bridge-wasm && bunx tsc --noEmit && npm run build && npm run test:e2e && npm run package"

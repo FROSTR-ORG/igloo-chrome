@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, adapted for this repository.
 
+## [0.2.0] - 2026-03-08
+
+### Added
+- Structured JSON observability across background, offscreen, and Playwright live/runtime harnesses.
+- Failure-only `observability-bundle.json` artifacts for easier E2E triage.
+- Docker-backed demo-harness coverage using the infra-owned `dev-relay` and `bifrost-demo` services.
+- Shared nonce-readiness assertions across the live, lifecycle, and demo E2E suites.
+
+### Changed
+- Onboarding is now hard-cut to encrypted, password-required `bfonboard1...` packages.
+- Successful onboarding consumes the package immediately, persists runtime metadata and snapshots, and no longer stores the onboarding package for recovery.
+- Offscreen restore now uses persisted runtime snapshots as the canonical recovery path.
+- The bridge WASM build script now resolves the current workspace layout by default.
+- Repo-local Playwright ownership moved to the infra test workspace at `../../test/igloo-chrome`.
+
+### Fixed
+- Runtime restore no longer loses nonce-ready state needed for post-onboarding signing.
+- Provider signing now selects a nonce-ready peer subset instead of failing on raw peer ordering.
+- Diagnostics output and runtime lifecycle reporting are now consistent across background, offscreen, and test harness consumers.
+
 ## [0.1.0] - 2026-03-07
 
 ### Added

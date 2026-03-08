@@ -8,13 +8,14 @@ import { Input } from '@/components/ui/input';
 import { PeerList, type PeerPolicy } from '@/components/ui/peer-list';
 import { EventLog, type LogEntry } from '@/components/ui/event-log';
 import { ConfirmModal } from '@/components/ui/confirm-modal';
-import { Check, Copy, HelpCircle, Trash2, User, X } from 'lucide-react';
+import { Copy, HelpCircle, Trash2, User, X } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import {
   DEFAULT_RELAYS,
   createSignerNode,
   connectSignerNode,
   detachEvent,
+  getPublicKeyFromNode,
   normalizeRelays,
   pingSinglePeer,
   refreshPeerStatuses,
@@ -22,9 +23,11 @@ import {
   stopSignerNode,
   type NodeWithEvents
 } from '@/lib/igloo';
-import { loadPeerPolicies, savePeerPolicies } from '@/lib/storage';
+import { createLogger } from '@/lib/observability';
+import { loadPeerPolicies, loadRuntimeSnapshot, savePeerPolicies } from '@/lib/storage';
 
 const MAX_LOGS = 200;
+const logger = createLogger('igloo.signer-page');
 
 const EVENT_LABELS: Record<string, { level: string; message: string }> = {
   ready: { level: 'READY', message: 'Node is ready' },
@@ -43,16 +46,37 @@ function initializePeers(): PeerPolicy[] {
   }));
 }
 
-function readTag(msg: unknown): string {
-  if (msg && typeof msg === 'object' && 'tag' in msg && typeof msg.tag === 'string') {
-    return msg.tag;
+function readEventLabel(msg: unknown): { level: string; message: string } {
+  if (
+    msg &&
+    typeof msg === 'object' &&
+    'domain' in msg &&
+    'event' in msg &&
+    typeof msg.domain === 'string' &&
+    typeof msg.event === 'string'
+  ) {
+    const level =
+      'level' in msg && typeof msg.level === 'string' ? msg.level.toUpperCase() : 'INFO';
+    return {
+      level,
+      message: `${msg.domain}.${msg.event}`
+    };
   }
-  return 'message';
+  if (msg && typeof msg === 'object' && 'tag' in msg && typeof msg.tag === 'string') {
+    return {
+      level: EVENT_LABELS[msg.tag]?.level ?? 'INFO',
+      message: EVENT_LABELS[msg.tag]?.message ?? msg.tag
+    };
+  }
+  return {
+    level: 'INFO',
+    message: 'message'
+  };
 }
 
 export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
   const { profile, logout, activeNode, setActiveNode } = useStore();
-  const [copiedOnboard, setCopiedOnboard] = React.useState(false);
+  const [copiedPublicKey, setCopiedPublicKey] = React.useState(false);
   const [relays, setRelays] = React.useState<string[]>(
     profile?.relays?.length ? profile.relays : DEFAULT_RELAYS
   );
@@ -112,24 +136,8 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
       };
 
       const handleMessage = (msg: unknown) => {
-        const tag = readTag(msg);
-
-        if (EVENT_LABELS[tag]) {
-          addLog(EVENT_LABELS[tag].level, EVENT_LABELS[tag].message, msg);
-          return;
-        }
-
-        if (tag.startsWith('/sign/')) {
-          addLog('SIGN', `Signature event ${tag}`, msg);
-        } else if (tag.startsWith('/ecdh/')) {
-          addLog('ECDH', `ECDH event ${tag}`, msg);
-        } else if (tag.startsWith('/ping/')) {
-          addLog('PING', `Ping event ${tag}`, msg);
-        } else if (tag.startsWith('/onboard/')) {
-          addLog('ONBOARD', `Onboard event ${tag}`, msg);
-        } else {
-          addLog('INFO', 'Bridge event', msg);
-        }
+        const { level, message } = readEventLabel(msg);
+        addLog(level, message, msg);
       };
 
       node.on('ready', handleReady);
@@ -204,9 +212,15 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
     setNodeStatus('connecting');
 
     try {
+      const runtimeSnapshotJson = loadRuntimeSnapshot();
+      if (!runtimeSnapshotJson) {
+        throw new Error('No local signer snapshot found. Re-import your onboarding package.');
+      }
       const node = createSignerNode({
-        onboardPackage: profile.onboardPackage,
+        mode: 'persisted',
         relays: normalized
+      }, {
+        runtimeSnapshotJson
       });
 
       cleanupRef.current?.();
@@ -312,14 +326,18 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
     [addLog, nodeStatus, peers]
   );
 
-  const handleCopyOnboard = async () => {
-    if (!profile) return;
+  const handleCopyPublicKey = async () => {
+    const value =
+      (nodeRef.current ? getPublicKeyFromNode(nodeRef.current) : null) ?? profile?.groupPublicKey;
+    if (!value) return;
     try {
-      await navigator.clipboard.writeText(profile.onboardPackage);
-      setCopiedOnboard(true);
-      setTimeout(() => setCopiedOnboard(false), 2000);
+      await navigator.clipboard.writeText(value);
+      setCopiedPublicKey(true);
+      setTimeout(() => setCopiedPublicKey(false), 2000);
     } catch (err) {
-      console.error('Failed to copy onboarding package', err);
+      logger.warn('ui', 'copy_public_key_failed', {
+        error_message: err instanceof Error ? err.message : String(err)
+      });
     }
   };
 
@@ -380,25 +398,25 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
           </div>
 
           <div className="space-y-1.5">
-            <LabelRow label="Onboarding Package" />
+            <LabelRow label="Group Public Key" />
             <div className="flex">
               <Input
                 type="text"
-                value={profile.onboardPackage}
+                value={profile.groupPublicKey || ''}
                 className="bg-gray-800/50 border-gray-700/50 text-blue-300 py-2 text-sm w-full font-mono"
                 readOnly
-                disabled={isSignerRunning || isConnecting}
               />
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={handleCopyOnboard}
+                onClick={handleCopyPublicKey}
                 className="ml-2 bg-blue-800/30 text-blue-400 hover:text-blue-300 hover:bg-blue-800/50"
-                title="Copy onboarding package"
+                title="Copy public key"
               >
-                {copiedOnboard ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
+                <Copy className="h-5 w-5" />
               </Button>
             </div>
+            {copiedPublicKey && <div className="text-xs text-blue-300">Public key copied</div>}
           </div>
 
           <div className="flex items-center justify-between mt-2">
@@ -493,7 +511,7 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
       <ConfirmModal
         isOpen={showClearModal}
         title="Clear Onboarding Profile?"
-        message="This will delete your saved onboarding package and relay configuration from this browser. This action cannot be undone."
+        message="This will delete your saved signer metadata, relay configuration, and runtime snapshot from this browser. This action cannot be undone."
         confirmLabel="Clear Profile"
         cancelLabel="Keep Profile"
         onConfirm={handleClearProfile}

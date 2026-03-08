@@ -77,7 +77,9 @@ async function bundleBrowserEntry(entryPoint, outfile, format = 'esm') {
       'import.meta.env.VITE_DEFAULT_RELAYS': JSON.stringify(process.env.VITE_DEFAULT_RELAYS ?? ''),
       'import.meta.env.VITE_BIFROST_EVENT_KIND': JSON.stringify(
         process.env.VITE_BIFROST_EVENT_KIND ?? '20000'
-      )
+      ),
+      'import.meta.env.VITE_IGLOO_VERBOSE': JSON.stringify(process.env.VITE_IGLOO_VERBOSE ?? '0'),
+      'import.meta.env.VITE_IGLOO_DEBUG': JSON.stringify(process.env.VITE_IGLOO_DEBUG ?? '0')
     }
   });
 }

@@ -8,7 +8,7 @@ Produce a deterministic browser-loadable extension candidate from the current re
 - `npm install`
 - `wasm-pack`
 - `clang`
-- local `bifrost-rs` checkout, or `BIFROST_RS_DIR` set correctly
+- local `bifrost-rs` checkout at `../bifrost-rs`, or `BIFROST_RS_DIR` set correctly
 
 ## Pre-release checks
 1. `bunx tsc --noEmit`

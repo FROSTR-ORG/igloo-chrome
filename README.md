@@ -16,18 +16,22 @@ The runtime target is `bifrost-rs` compiled to browser WASM. The extension UI bo
 - real `getPublicKey()`, `signEvent`, and `nip44.encrypt/decrypt` are wired through the WASM runtime
 - onboarding persists profile data for background and offscreen runtime recovery
 - runtime snapshots survive offscreen teardown and browser-context relaunch
-- Playwright coverage exercises smoke, provider, live signer, and lifecycle paths
+- Playwright coverage now lives in `../../test/igloo-chrome` and exercises smoke, provider, live signer, and lifecycle paths
 
 ## Prerequisites
 - Node.js and npm
 - `wasm-pack`
 - `clang`
-- local `bifrost-rs` checkout at `/home/cscott/Repos/frostr/bifrost-infra/repos/bifrost-rs`, or `BIFROST_RS_DIR` set explicitly
+- local `bifrost-rs` checkout at `../bifrost-rs` in this workspace, or `BIFROST_RS_DIR` set explicitly
 
 ## Build
 1. `npm install`
 2. `npm run build:bridge-wasm`
 3. `npm run build`
+
+Build-time observability controls:
+- `VITE_IGLOO_VERBOSE=1 npm run build`
+- `VITE_IGLOO_DEBUG=1 npm run build`
 
 Load `dist/` as an unpacked extension in Chrome.
 
@@ -36,6 +40,15 @@ Load `dist/` as an unpacked extension in Chrome.
 2. `npm run build:bridge-wasm`
 3. `npm run build`
 4. `npm run test:e2e`
+
+`npm run test:e2e` proxies to the infra-owned Playwright suite under `../../test/igloo-chrome`.
+
+The E2E harness writes Playwright artifacts under `../../test/igloo-chrome/results/`. Failed runs also attach `observability-bundle.json` with structured runtime diagnostics and fixture event logs.
+
+Manual demo environment:
+- `make demo-harness BG=1` from the infra repo root starts `services/dev-relay` and `services/bifrost-demo`
+- onboarding packages and passwords are written under `../../data/test-harness/`
+- `make demo-harness-onboard` prints the current package/password pairs for manual pairing with the extension
 
 ## Release candidate
 1. `npm run release:candidate`
@@ -50,7 +63,7 @@ Refresh them with:
 - `npm run build:bridge-wasm`
 
 Default `bifrost-rs` path:
-- `/home/cscott/Repos/frostr/bifrost-infra/repos/bifrost-rs`
+- `../bifrost-rs`
 
 Override with:
 - `BIFROST_RS_DIR=/absolute/path/to/bifrost-rs npm run build:bridge-wasm`

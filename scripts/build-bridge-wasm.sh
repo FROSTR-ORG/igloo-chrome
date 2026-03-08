@@ -4,7 +4,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IGLOO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-BIFROST_RS_DIR="${BIFROST_RS_DIR:-${IGLOO_ROOT}/../bifrost-infra/repos/bifrost-rs}"
+DEFAULT_BIFROST_RS_DIR="${IGLOO_ROOT}/../bifrost-rs"
+LEGACY_BIFROST_RS_DIR="${IGLOO_ROOT}/../bifrost-infra/repos/bifrost-rs"
+if [[ -n "${BIFROST_RS_DIR:-}" ]]; then
+  RESOLVED_BIFROST_RS_DIR="${BIFROST_RS_DIR}"
+elif [[ -f "${DEFAULT_BIFROST_RS_DIR}/Cargo.toml" ]]; then
+  RESOLVED_BIFROST_RS_DIR="${DEFAULT_BIFROST_RS_DIR}"
+else
+  RESOLVED_BIFROST_RS_DIR="${LEGACY_BIFROST_RS_DIR}"
+fi
+BIFROST_RS_DIR="${RESOLVED_BIFROST_RS_DIR}"
 WASM_PKG_DIR="${IGLOO_ROOT}/public/wasm"
 WASM_OUT_NAME="bifrost_bridge_wasm"
 
@@ -20,7 +29,9 @@ fi
 
 if [[ ! -f "${BIFROST_RS_DIR}/Cargo.toml" ]]; then
   echo "error: bifrost-rs workspace not found at ${BIFROST_RS_DIR}" >&2
-  echo "set BIFROST_RS_DIR=/absolute/path/to/bifrost-rs and retry" >&2
+  echo "default workspace path: ${DEFAULT_BIFROST_RS_DIR}" >&2
+  echo "legacy fallback path: ${LEGACY_BIFROST_RS_DIR}" >&2
+  echo "override with: BIFROST_RS_DIR=/absolute/path/to/bifrost-rs npm run build:bridge-wasm" >&2
   exit 1
 fi
 

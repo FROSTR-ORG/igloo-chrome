@@ -8,12 +8,12 @@ import {
 import { normalizeRelays } from './igloo';
 
 export type StoredProfile = {
-  onboardPackage: string;
   relays: string[];
   keysetName?: string;
   groupPublicKey?: string;
   publicKey?: string;
   peerPubkey?: string;
+  runtimeSnapshotJson?: string;
 };
 
 export type StoredPeerPolicy = {
@@ -50,6 +50,18 @@ export function clearStoredProfile() {
   localStorage.removeItem(RUNTIME_SNAPSHOT_LOCAL_STORAGE_KEY);
   clearMirroredProfileInExtensionStorage();
   clearRuntimeSnapshotInExtensionStorage();
+}
+
+export function saveRuntimeSnapshot(snapshotJson: string): void {
+  localStorage.setItem(RUNTIME_SNAPSHOT_LOCAL_STORAGE_KEY, snapshotJson);
+}
+
+export function loadRuntimeSnapshot(): string | null {
+  return localStorage.getItem(RUNTIME_SNAPSHOT_LOCAL_STORAGE_KEY);
+}
+
+export function clearRuntimeSnapshot(): void {
+  localStorage.removeItem(RUNTIME_SNAPSHOT_LOCAL_STORAGE_KEY);
 }
 
 // Peer policies (not encrypted - just pubkey + allow/deny flags)

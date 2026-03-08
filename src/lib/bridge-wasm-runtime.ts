@@ -13,7 +13,7 @@ export type WasmBridgeRuntimeApi = {
   status_json: () => string;
   policies_json: () => string;
   set_policy: (policyJson: string) => void;
-  decode_onboarding_package_json: (value: string) => string;
+  decode_onboarding_package_json_with_password: (value: string, password: string) => string;
 };
 
 type WasmBridgeModule = {
@@ -30,7 +30,7 @@ type WasmBridgeModule = {
     status_json: () => string;
     policies_json: () => string;
     set_policy: (policyJson: string) => void;
-    decode_onboarding_package_json: (value: string) => string;
+    decode_onboarding_package_json_with_password: (value: string, password: string) => string;
   };
 };
 
@@ -121,6 +121,7 @@ export async function createWasmBridgeRuntime(): Promise<WasmBridgeRuntimeApi> {
     status_json: raw.status_json.bind(raw),
     policies_json: raw.policies_json.bind(raw),
     set_policy: raw.set_policy.bind(raw),
-    decode_onboarding_package_json: raw.decode_onboarding_package_json.bind(raw)
+    decode_onboarding_package_json_with_password:
+      raw.decode_onboarding_package_json_with_password.bind(raw)
   };
 }

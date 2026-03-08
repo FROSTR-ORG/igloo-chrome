@@ -10,7 +10,7 @@ This project is a Chrome MV3 signing-device extension for the FROSTR protocol. C
 - Node.js and npm
 - `wasm-pack`
 - `clang`
-- local `bifrost-rs` checkout at `/home/cscott/Repos/frostr/bifrost-infra/repos/bifrost-rs`, or set `BIFROST_RS_DIR`
+- local `bifrost-rs` checkout at `../bifrost-rs`, or set `BIFROST_RS_DIR`
 - Chromium/Chrome for manual extension checks
 
 ## Setup
