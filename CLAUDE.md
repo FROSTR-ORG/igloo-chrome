@@ -1,65 +1,74 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance for working in `igloo-chrome`.
 
 ## Project Overview
 
-igloo-web is a web-based NOSTR signer UI built with React that provides a simple web implementation of a FROSTR (Frost Signer). It uses the @frostr/igloo-core library for distributed cryptographic signing and relay management via Bifrost nodes.
+`igloo-chrome` is the Chrome MV3 signing-device extension for FROSTR.
 
-## Build & Development Commands
+Architecture:
+- `background.ts` is the control plane
+- `offscreen.ts` hosts the live signer runtime
+- `options.html` is the operator dashboard
+- `popup.html` is a quick status surface
+- `nostr-provider.ts` and `content-script.ts` expose the website bridge
+
+The extension is intentionally thin:
+- signer truth comes from `bifrost-rs`
+- background caches signer-owned `runtime_status()`
+- UI updates are driven by `drain_runtime_events()` plus explicit refreshes
+- provider flows call `prepare_sign()` / `prepare_ecdh()` before crypto work
+
+## Build & Verification Commands
 
 ```bash
-npm run dev       # Start Vite dev server with hot-reload
-npm run build     # TypeScript compile + Vite production build
-npm run preview   # Preview production build locally
+npm run build:bridge-wasm
+npm run build
+bunx tsc --noEmit
+npm run test:e2e
 ```
 
-## Architecture
+Build with extra runtime diagnostics:
 
-### Tech Stack
-- React 18 + TypeScript + Vite
-- TailwindCSS with custom design tokens (dark mode only)
-- Radix UI primitives with CVA (class-variance-authority) for component variants
-- Web Crypto API (AES-GCM encryption, PBKDF2 key derivation)
-- @frostr/igloo-core for Bifrost node operations
+```bash
+VITE_IGLOO_VERBOSE=1 npm run build
+VITE_IGLOO_DEBUG=1 npm run build
+```
 
-### Application Flow
+## Runtime Boundaries
 
-Three-page routing controlled by `AppState.route`:
-1. **Onboarding** (`/src/pages/Onboarding.tsx`) - Initial setup: enter group credential, share credential, relays, and password
-2. **Unlock** (`/src/pages/Unlock.tsx`) - Decrypt stored credentials with password
-3. **Signer** (`/src/pages/Signer.tsx`) - Main control panel: manage node, relays, peers, view event log
+- `src/background.ts`: extension orchestration, cached status, prompts, runtime control
+- `src/offscreen.ts`: live signer runtime host
+- `src/lib/igloo.ts`: browser-side wrapper over the WASM signer bridge
+- `src/extension/client.ts`: typed UI/control client for background messaging
+- `src/lib/store.tsx`: options-page control-plane state only
 
-### State Management
+Do not move signer logic into the React UI or background when `bifrost-rs` can own it.
 
-Single React Context store in `/src/lib/store.tsx`:
-- `StoreProvider` wraps app at root
-- `useStore()` hook provides access to global state
-- State persisted in localStorage under `igloo.vault` key as encrypted bundle
+## Shared UI
 
-### Key Modules
+Reusable presentational UI comes from the sibling `igloo-ui` package.
 
-- `/src/lib/igloo.ts` - Bifrost node integration, credential validation, peer management
-- `/src/lib/storage.ts` - Encrypted localStorage operations
-- `/src/lib/crypto.ts` - Web Crypto wrappers (AES-GCM-256, PBKDF2 100k iterations)
-- `/src/lib/nostr-shim.ts` - Runtime patch for nostr-tools SimplePool filter handling
+What stays in `igloo-chrome`:
+- extension-specific page composition
+- settings/permissions behavior
+- background/offscreen/provider wiring
 
-### Path Alias
+What should not be reintroduced locally:
+- duplicate copies of shared `button`, `card`, `peer-list`, `event-log`, `page-layout`, or onboarding presentation
 
-Import alias configured: `@/*` → `./src/*`
+## Testing
 
-## UI Patterns
+- Browser coverage lives in the top-level infra repo under `../../test/igloo-chrome`
+- The Playwright global setup prebuilds:
+  - the extension
+  - shared `igloo-shell` binaries
+- The suite currently runs with `2` workers and is green
 
-- All components use `cn()` utility from `/src/lib/utils.ts` for Tailwind class merging
-- Button variants defined with CVA pattern in `/src/components/ui/button.tsx`
-- Custom `.igloo-card` class for card styling
-- Blue color palette: blue-100 through blue-900
-- Design tokens in `/src/index.css` with CSS custom properties
+Keep new browser-behavior changes aligned with that suite.
 
 ## Important Notes
 
-- This is an early prototype marked for rework
-- No test suite currently exists
-- Dark mode is permanent (no light mode toggle)
-- Credentials are always encrypted before storage
-- Node event listeners must be cleaned up on unmount to prevent memory leaks
+- This is a hard-cut alpha codebase. Do not add compatibility layers for old runtime models or old onboarding flows.
+- `runtime.snapshot` is for persistence and diagnostics, not the main readiness contract.
+- `Wipe All Data` should keep using signer `wipe_state()` plus extension storage cleanup.

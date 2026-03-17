@@ -16,7 +16,9 @@
     "allowImportingTsExtensions": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "igloo-shared": ["../igloo-shared/src/index.ts"],
+      "igloo-ui": ["./src/lib/igloo-ui.ts"]
     }
   },
   "include": ["src"]

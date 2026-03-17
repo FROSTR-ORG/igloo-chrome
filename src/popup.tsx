@@ -1,41 +1,21 @@
 import * as React from 'react';
 import ReactDOM from 'react-dom/client';
-import { AppHeader } from '@/components/ui/app-header';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { AppHeader, Button, Card, CardContent, CardHeader, CardTitle } from 'igloo-ui';
 import { getChromeApi } from '@/extension/chrome';
-import { MESSAGE_TYPE } from '@/extension/protocol';
-
-type PopupStatus = {
-  configured: boolean;
-  keysetName: string | null;
-  publicKey: string | null;
-  relays: string[];
-  runtime: 'cold' | 'ready';
-};
+import { fetchExtensionAppState } from '@/extension/client';
+import type { ExtensionAppState } from '@/extension/protocol';
 
 function PopupApp() {
-  const [status, setStatus] = React.useState<PopupStatus | null>(null);
+  const [status, setStatus] = React.useState<ExtensionAppState | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const refresh = React.useCallback(async () => {
-    const chromeApi = getChromeApi();
-    if (!chromeApi?.runtime?.sendMessage) {
-      setError('Extension runtime messaging is unavailable');
-      return;
+    try {
+      setStatus(await fetchExtensionAppState());
+      setError(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
-
-    const response = (await chromeApi.runtime.sendMessage({
-      type: MESSAGE_TYPE.GET_STATUS
-    })) as { ok?: boolean; result?: PopupStatus; error?: string } | undefined;
-
-    if (!response?.ok || !response.result) {
-      setError(response?.error || 'Failed to load extension status');
-      return;
-    }
-
-    setStatus(response.result);
-    setError(null);
   }, []);
 
   React.useEffect(() => {
@@ -45,7 +25,7 @@ function PopupApp() {
   const openDashboard = React.useCallback(async () => {
     const chromeApi = getChromeApi();
     if (!chromeApi?.runtime?.sendMessage) return;
-    await chromeApi.runtime.sendMessage({ type: MESSAGE_TYPE.OPEN_DASHBOARD });
+    await chromeApi.runtime.sendMessage({ type: 'ext.openDashboard' });
     window.close();
   }, []);
 
@@ -69,17 +49,30 @@ function PopupApp() {
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Profile</span>
                 <span className="font-medium text-blue-100">
-                  {status.configured ? status.keysetName || 'Configured' : 'Not configured'}
+                  {status.configured ? status.profile?.keysetName || 'Configured' : 'Not configured'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Runtime</span>
-                <span className="font-medium text-cyan-200">{status.runtime}</span>
+                <span className="font-medium text-cyan-200">{status.runtime.phase}</span>
               </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Activation</span>
+                <span className="font-medium text-cyan-200">
+                  {status.lifecycle.activation.stage}
+                </span>
+              </div>
+              {status.lifecycle.activation.lastError && (
+                <div className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-200">
+                  {status.lifecycle.activation.lastError.message}
+                </div>
+              )}
               <div className="space-y-1">
                 <div className="text-slate-400">Public key</div>
                 <div className="rounded border border-blue-950/60 bg-blue-950/20 px-3 py-2 font-mono text-xs text-blue-100">
-                  {status.publicKey || 'Available after onboarding decode'}
+                  {status.runtime.metadata?.group_public_key ||
+                    status.profile?.groupPublicKey ||
+                    'Available after onboarding decode'}
                 </div>
               </div>
             </>

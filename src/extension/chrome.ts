@@ -25,6 +25,13 @@ type ChromeGlobal = typeof globalThis & {
             sendResponse: (response?: unknown) => void
           ) => boolean | void
         ) => void;
+        removeListener?: (
+          listener: (
+            message: unknown,
+            sender: unknown,
+            sendResponse: (response?: unknown) => void
+          ) => boolean | void
+        ) => void;
       };
     };
     storage?: {

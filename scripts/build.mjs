@@ -51,7 +51,11 @@ async function copyPublic() {
 
 async function buildCss() {
   const input = await fs.readFile(sourceCss, 'utf8');
-  const result = await postcss([tailwindcss({ config: path.join(rootDir, 'tailwind.config.ts') })]).process(input, {
+  const bundledInput = input.replace(
+    /@import\s+["']igloo-ui\/styles\.css["'];?/g,
+    await fs.readFile(path.join(rootDir, 'node_modules/igloo-ui/dist/styles.css'), 'utf8')
+  );
+  const result = await postcss([tailwindcss({ config: path.join(rootDir, 'tailwind.config.ts') })]).process(bundledInput, {
     from: sourceCss,
     to: distCss
   });
@@ -59,11 +63,14 @@ async function buildCss() {
 }
 
 async function bundleBrowserEntry(entryPoint, outfile, format = 'esm') {
+  const reactRoot = path.join(rootDir, 'node_modules', 'react');
+  const reactDomRoot = path.join(rootDir, 'node_modules', 'react-dom');
   await esbuild.build({
     absWorkingDir: rootDir,
     entryPoints: [entryPoint],
     outfile,
     bundle: true,
+    preserveSymlinks: true,
     format,
     platform: 'browser',
     target: ['chrome116'],
@@ -71,6 +78,14 @@ async function bundleBrowserEntry(entryPoint, outfile, format = 'esm') {
     tsconfig: path.join(rootDir, 'tsconfig.json'),
     logLevel: 'silent',
     loader: assetLoaders,
+    alias: {
+      '@': path.join(rootDir, 'src'),
+      react: path.join(reactRoot, 'index.js'),
+      'react/jsx-runtime': path.join(reactRoot, 'jsx-runtime.js'),
+      'react/jsx-dev-runtime': path.join(reactRoot, 'jsx-dev-runtime.js'),
+      'react-dom': path.join(reactDomRoot, 'index.js'),
+      'react-dom/client': path.join(reactDomRoot, 'client.js')
+    },
     assetNames: 'assets/[name]-[hash]',
     define: {
       'process.env.NODE_ENV': '"production"',

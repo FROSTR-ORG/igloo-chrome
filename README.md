@@ -11,11 +11,20 @@ This project is extension-first:
 
 The runtime target is `bifrost-rs` compiled to browser WASM. The extension UI borrows the newer `igloo-web` operator surface, but the extension architecture is purpose-built for MV3.
 
+The extension is a thin host over the signer runtime:
+- signer truth comes from `bifrost-rs`
+- background caches and distributes signer state
+- offscreen owns the live WASM runtime session
+- UI renders signer-owned status and controls
+- shared presentational components come from the sibling `igloo-ui` package
+
 ## Status
 - MV3 extension package builds into `dist/`
-- real `getPublicKey()`, `signEvent`, and `nip44.encrypt/decrypt` are wired through the WASM runtime
+- `getPublicKey()` is served from configured profile metadata, while `signEvent` and `nip44.encrypt/decrypt` still require the live WASM runtime
 - onboarding persists profile data for background and offscreen runtime recovery
 - runtime snapshots survive offscreen teardown and browser-context relaunch
+- signer-owned `runtime_status()` is the canonical status model
+- signer-owned `drain_runtime_events()` is the normal incremental update path
 - Playwright coverage now lives in `../../test/igloo-chrome` and exercises smoke, provider, live signer, and lifecycle paths
 
 ## Prerequisites
@@ -43,12 +52,23 @@ Load `dist/` as an unpacked extension in Chrome.
 
 `npm run test:e2e` proxies to the infra-owned Playwright suite under `../../test/igloo-chrome`.
 
+The Playwright global setup:
+- builds the extension once
+- prebuilds shared shell binaries into `../../build/igloo-shell-target`
+- runs the chrome suite with `2` workers
+
 The E2E harness writes Playwright artifacts under `../../test/igloo-chrome/results/`. Failed runs also attach `observability-bundle.json` with structured runtime diagnostics and fixture event logs.
 
 Manual demo environment:
-- `make demo-harness BG=1` from the infra repo root starts `services/dev-relay` and `services/bifrost-demo`
-- onboarding packages and passwords are written under `../../data/test-harness/`
-- `make demo-harness-onboard` prints the current package/password pairs for manual pairing with the extension
+- `./run.sh demo start` from the infra repo root starts `services/dev-relay` and `services/igloo-demo`
+- direct `docker compose -f compose.test.yml ...` is also supported for advanced/manual runs
+- manual demo onboarding packages and passwords are written under `../../data/test-harness/`
+- browser-facing local demo relays should use `ws://localhost:<port>`
+- Playwright fixtures do not use the shared `data/test-harness` path; they provision an isolated compose project plus a temporary artifact directory per test worker
+- `./run.sh demo onboard` prints the current package/password pairs for manual pairing with the extension
+
+Cross-repo demo/testing strategy lives in
+[`../../docs/E2E-DEMO-STRATEGY.md`](../../docs/E2E-DEMO-STRATEGY.md).
 
 ## Release candidate
 1. `npm run release:candidate`
@@ -68,6 +88,8 @@ Default `bifrost-rs` path:
 Override with:
 - `BIFROST_RS_DIR=/absolute/path/to/bifrost-rs npm run build:bridge-wasm`
 
+The canonical browser bridge artifacts are owned by [`igloo-shared`](/home/cscott/Repos/frostr/frostr-infra/repos/igloo-shared). The Chrome build step syncs those shared artifacts into the extension `public/wasm` directory.
+
 ## Build system
 The extension is packaged without Vite.
 
@@ -79,9 +101,17 @@ The extension is packaged without Vite.
 
 Independent entry bundling is deliberate because Chrome content scripts and injected provider scripts need deterministic single-file outputs.
 
+## Shared UI
+Reusable presentational UI comes from `../igloo-ui` as the local `igloo-ui` package.
+Extension-specific runtime, provider, and control-plane logic remains in `igloo-chrome`.
+
 ## Project docs
 - [CHANGELOG.md](./CHANGELOG.md)
 - [CONTRIBUTING.md](./CONTRIBUTING.md)
 - [SECURITY.md](./SECURITY.md)
 - [TESTING.md](./TESTING.md)
 - [RELEASE.md](./RELEASE.md)
+- [../../docs/INDEX.md](../../docs/INDEX.md)
+- [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)
+- [../../docs/PROTOCOL.md](../../docs/PROTOCOL.md)
+- [../../docs/adrs/INDEX.md](../../docs/adrs/INDEX.md)

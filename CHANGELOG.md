@@ -9,7 +9,7 @@ The format is based on Keep a Changelog, adapted for this repository.
 ### Added
 - Structured JSON observability across background, offscreen, and Playwright live/runtime harnesses.
 - Failure-only `observability-bundle.json` artifacts for easier E2E triage.
-- Docker-backed demo-harness coverage using the infra-owned `dev-relay` and `bifrost-demo` services.
+- Docker-backed demo-harness coverage using the infra-owned `dev-relay` and `igloo-demo` services.
 - Shared nonce-readiness assertions across the live, lifecycle, and demo E2E suites.
 
 ### Changed

@@ -1,369 +1,260 @@
 import * as React from 'react';
-import { PageLayout } from '@/components/ui/page-layout';
-import { AppHeader } from '@/components/ui/app-header';
-import { ContentCard } from '@/components/ui/content-card';
-import { Button } from '@/components/ui/button';
-import { IconButton } from '@/components/ui/icon-button';
-import { Input } from '@/components/ui/input';
-import { PeerList, type PeerPolicy } from '@/components/ui/peer-list';
-import { EventLog, type LogEntry } from '@/components/ui/event-log';
-import { ConfirmModal } from '@/components/ui/confirm-modal';
-import { Copy, HelpCircle, Trash2, User, X } from 'lucide-react';
+import {
+  AppHeader,
+  Button,
+  ContentCard,
+  OperatorSignerPanel,
+  PageLayout,
+  type LogEntry,
+  type PeerPolicy,
+} from 'igloo-ui';
+import { getChromeApi } from '@/extension/chrome';
+import { MESSAGE_TYPE, type StoredPeerPolicy } from '@/extension/protocol';
 import { useStore } from '@/lib/store';
 import {
-  DEFAULT_RELAYS,
-  createSignerNode,
-  connectSignerNode,
-  detachEvent,
-  getPublicKeyFromNode,
-  normalizeRelays,
-  pingSinglePeer,
-  refreshPeerStatuses,
-  setPeerPolicy,
-  stopSignerNode,
-  type NodeWithEvents
-} from '@/lib/igloo';
-import { createLogger } from '@/lib/observability';
-import { loadPeerPolicies, loadRuntimeSnapshot, savePeerPolicies } from '@/lib/storage';
+  fetchExtensionStatus,
+  fetchRuntimeDiagnostics,
+  sendRuntimeControl,
+  type ExtensionStatusSnapshot,
+} from '@/extension/client';
+import { createLogger, type ObservabilityEvent } from '@/lib/observability';
 
-const MAX_LOGS = 200;
 const logger = createLogger('igloo.signer-page');
 
-const EVENT_LABELS: Record<string, { level: string; message: string }> = {
-  ready: { level: 'READY', message: 'Node is ready' },
-  closed: { level: 'INFO', message: 'Node closed connection' },
-  error: { level: 'ERROR', message: 'Node error' }
-};
-
-function initializePeers(): PeerPolicy[] {
-  const savedPolicies = loadPeerPolicies();
+function initializePeers(savedPolicies: StoredPeerPolicy[] = []): PeerPolicy[] {
   return savedPolicies.map((saved, index) => ({
     alias: `Peer ${index + 1}`,
     pubkey: saved.pubkey,
-    send: saved.send,
-    receive: saved.receive,
-    state: 'offline'
+    send:
+      saved.effectivePolicy.request.ping &&
+      saved.effectivePolicy.request.onboard &&
+      saved.effectivePolicy.request.sign &&
+      saved.effectivePolicy.request.ecdh,
+    receive:
+      saved.effectivePolicy.respond.ping &&
+      saved.effectivePolicy.respond.onboard &&
+      saved.effectivePolicy.respond.sign &&
+      saved.effectivePolicy.respond.ecdh,
+    state: 'offline',
+    statusLabel: 'offline',
+    lastSeen: null,
   }));
 }
 
-function readEventLabel(msg: unknown): { level: string; message: string } {
-  if (
-    msg &&
-    typeof msg === 'object' &&
-    'domain' in msg &&
-    'event' in msg &&
-    typeof msg.domain === 'string' &&
-    typeof msg.event === 'string'
-  ) {
-    const level =
-      'level' in msg && typeof msg.level === 'string' ? msg.level.toUpperCase() : 'INFO';
-    return {
-      level,
-      message: `${msg.domain}.${msg.event}`
-    };
-  }
-  if (msg && typeof msg === 'object' && 'tag' in msg && typeof msg.tag === 'string') {
-    return {
-      level: EVENT_LABELS[msg.tag]?.level ?? 'INFO',
-      message: EVENT_LABELS[msg.tag]?.message ?? msg.tag
-    };
-  }
+function toLogEntry(event: ObservabilityEvent): LogEntry {
   return {
-    level: 'INFO',
-    message: 'message'
+    id: `${event.ts}-${event.domain}-${event.event}`,
+    time: new Date(event.ts).toLocaleTimeString(),
+    level: event.level.toUpperCase(),
+    message: `${event.domain}.${event.event}`,
+    data: event,
   };
 }
 
+function derivePeers(status: ExtensionStatusSnapshot, savedPolicies: StoredPeerPolicy[]): PeerPolicy[] {
+  const base = new Map<string, PeerPolicy>();
+
+  for (const [index, saved] of savedPolicies.entries()) {
+    base.set(saved.pubkey.toLowerCase(), {
+      alias: `Peer ${index + 1}`,
+      pubkey: saved.pubkey.toLowerCase(),
+      send:
+        saved.effectivePolicy.request.ping &&
+        saved.effectivePolicy.request.onboard &&
+        saved.effectivePolicy.request.sign &&
+        saved.effectivePolicy.request.ecdh,
+      receive:
+        saved.effectivePolicy.respond.ping &&
+        saved.effectivePolicy.respond.onboard &&
+        saved.effectivePolicy.respond.sign &&
+        saved.effectivePolicy.respond.ecdh,
+      state: 'offline',
+      statusLabel: 'offline',
+      lastSeen: null,
+    });
+  }
+
+  for (const [index, peer] of (status.runtimeDetails.summary?.metadata.peers ?? []).entries()) {
+    const normalized = peer.toLowerCase();
+    const existing = base.get(normalized);
+    base.set(normalized, {
+      alias: existing?.alias ?? `Peer ${index + 1}`,
+      pubkey: normalized,
+      send: existing?.send ?? true,
+      receive: existing?.receive ?? true,
+      state: 'idle',
+      statusLabel: 'known',
+      lastSeen: existing?.lastSeen ?? null,
+    });
+  }
+
+  for (const peer of status.runtimeDetails.peerStatus) {
+    const normalized = peer.pubkey.toLowerCase();
+    const existing = base.get(normalized);
+    base.set(normalized, {
+      alias: existing?.alias ?? `Peer ${peer.idx}`,
+      pubkey: normalized,
+      send: existing?.send ?? true,
+      receive: existing?.receive ?? true,
+      state: peer.can_sign ? 'warning' : peer.online ? 'online' : peer.known ? 'idle' : 'offline',
+      statusLabel: peer.can_sign ? 'sign-ready' : peer.online ? 'online' : peer.known ? 'known' : 'offline',
+      lastSeen: peer.last_seen,
+      incomingAvailable: peer.incoming_available,
+      outgoingAvailable: peer.outgoing_available,
+      outgoingSpent: peer.outgoing_spent,
+      shouldSendNonces: peer.should_send_nonces,
+    });
+  }
+
+  return Array.from(base.values()).sort((a, b) => a.pubkey.localeCompare(b.pubkey));
+}
+
 export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
-  const { profile, logout, activeNode, setActiveNode } = useStore();
-  const [copiedPublicKey, setCopiedPublicKey] = React.useState(false);
-  const [relays, setRelays] = React.useState<string[]>(
-    profile?.relays?.length ? profile.relays : DEFAULT_RELAYS
+  const { appState, profile, logout } = useStore();
+  const [copiedField, setCopiedField] = React.useState<'group' | 'share' | null>(null);
+  const [peers, setPeers] = React.useState<PeerPolicy[]>(
+    () => initializePeers(appState?.runtime.summary?.peer_permission_states)
   );
-  const [newRelayUrl, setNewRelayUrl] = React.useState('');
-  const [peers, setPeers] = React.useState<PeerPolicy[]>(initializePeers);
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
-  const [nodeStatus, setNodeStatus] = React.useState<'stopped' | 'connecting' | 'running'>('stopped');
-  const [nodeError, setNodeError] = React.useState<string | null>(null);
-  const [showClearModal, setShowClearModal] = React.useState(false);
-  const nodeRef = React.useRef<NodeWithEvents | null>(null);
-  const cleanupRef = React.useRef<(() => void) | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = React.useState<'stopped' | 'connecting' | 'running'>('stopped');
+  const [runtimeError, setRuntimeError] = React.useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = React.useState(0);
+  const [status, setStatus] = React.useState<ExtensionStatusSnapshot | null>(null);
 
-  React.useEffect(() => {
-    setRelays(profile?.relays?.length ? profile.relays : DEFAULT_RELAYS);
-    setPeers(initializePeers());
-    setNodeError(null);
-    setLogs([]);
+  const refresh = React.useCallback(async () => {
+    try {
+      const [nextStatus, diagnostics] = await Promise.all([
+        fetchExtensionStatus(),
+        fetchRuntimeDiagnostics(),
+      ]);
 
-    if (!profile) {
-      cleanupRef.current?.();
-      cleanupRef.current = null;
-      stopSignerNode(nodeRef.current);
-      nodeRef.current = null;
-      setActiveNode(null);
-      setNodeStatus('stopped');
+      setStatus(nextStatus);
+      setRuntimeStatus(
+        nextStatus.lifecycle.activation.stage === 'ensuring_offscreen' ||
+          nextStatus.lifecycle.activation.stage === 'restoring_runtime' ||
+          nextStatus.lifecycle.activation.stage === 'syncing_status'
+          ? 'connecting'
+          : nextStatus.runtime === 'ready' || nextStatus.runtime === 'degraded'
+            ? 'running'
+            : 'stopped',
+      );
+      setRuntimeError(nextStatus.lifecycle.activation.lastError?.message ?? nextStatus.runtimeDetails.snapshotError ?? null);
+      setPeers(derivePeers(nextStatus, nextStatus.runtimeDetails.summary?.peer_permission_states ?? []));
+      setLogs(diagnostics.diagnostics.map(toLogEntry));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRuntimeError(message);
     }
-  }, [profile, setActiveNode]);
-
-  const addLog = React.useCallback((level: string, message: string, data?: unknown) => {
-    const entry: LogEntry = {
-      time: new Date().toLocaleTimeString(),
-      level,
-      message,
-      data,
-      id: Math.random().toString(36).substring(2, 11)
-    };
-    setLogs((prev) => [...prev.slice(-MAX_LOGS + 1), entry]);
-  }, []);
-
-  const setupNodeListeners = React.useCallback(
-    (node: NodeWithEvents) => {
-      const handleReady = () => {
-        setNodeStatus((prev) => (prev === 'connecting' ? 'running' : prev));
-        setNodeError(null);
-      };
-
-      const handleClosed = () => {
-        setNodeStatus('stopped');
-        addLog('INFO', 'Node closed connection');
-      };
-
-      const handleError = (err: unknown) => {
-        const msg = err instanceof Error ? err.message : 'Unknown node error';
-        setNodeError(msg);
-        setNodeStatus('stopped');
-        addLog('ERROR', 'Signer node error', msg);
-      };
-
-      const handleMessage = (msg: unknown) => {
-        const { level, message } = readEventLabel(msg);
-        addLog(level, message, msg);
-      };
-
-      node.on('ready', handleReady);
-      node.on('closed', handleClosed);
-      node.on('error', handleError);
-      node.on('message', handleMessage);
-
-      return () => {
-        detachEvent(node, 'ready', handleReady);
-        detachEvent(node, 'closed', handleClosed);
-        detachEvent(node, 'error', handleError);
-        detachEvent(node, 'message', handleMessage);
-      };
-    },
-    [addLog]
-  );
+  }, [appState?.runtime.summary?.peer_permission_states]);
 
   React.useEffect(() => {
-    cleanupRef.current?.();
-    cleanupRef.current = null;
-
-    if (!activeNode) {
-      nodeRef.current = null;
-      if (profile) {
-        setNodeStatus('stopped');
+    void refresh();
+    const chromeApi = getChromeApi();
+    const runtimeMessageApi = chromeApi?.runtime?.onMessage as
+      | {
+          addListener?: (listener: (message: unknown) => void) => void;
+          removeListener?: (listener: (message: unknown) => void) => void;
+        }
+      | undefined;
+    const messageListener = (message: unknown) => {
+      if (
+        message &&
+        typeof message === 'object' &&
+        'type' in message &&
+        message.type === MESSAGE_TYPE.RUNTIME_STATUS_UPDATED
+      ) {
+        void refresh();
       }
-      return;
-    }
-
-    nodeRef.current = activeNode;
-    cleanupRef.current = setupNodeListeners(activeNode);
-    setNodeStatus('running');
-    setNodeError(null);
-    addLog('READY', 'Signer node connected');
-
-    void refreshPeerStatuses(activeNode, initializePeers()).then(setPeers);
-
-    return () => {
-      cleanupRef.current?.();
-      cleanupRef.current = null;
     };
-  }, [activeNode, addLog, profile, setupNodeListeners]);
-
-  React.useEffect(() => {
+    runtimeMessageApi?.addListener?.(messageListener);
+    const handle = window.setInterval(() => {
+      void refresh();
+    }, 15000);
     return () => {
-      cleanupRef.current?.();
-      stopSignerNode(nodeRef.current);
-      nodeRef.current = null;
-      setActiveNode(null);
+      runtimeMessageApi?.removeListener?.(messageListener);
+      window.clearInterval(handle);
     };
-  }, [setActiveNode]);
-
-  const refreshAllPeers = React.useCallback(async () => {
-    if (!nodeRef.current) {
-      addLog('INFO', 'Start the signer before refreshing peers');
-      return;
-    }
-
-    const updated = await refreshPeerStatuses(nodeRef.current, peers);
-    setPeers(updated);
-  }, [addLog, peers]);
+  }, [refresh, refreshTick]);
 
   const handleStart = async () => {
     if (!profile) return;
-
-    const { relays: normalized, errors } = normalizeRelays(relays.length ? relays : DEFAULT_RELAYS);
-    if (errors.length) {
-      addLog('INFO', `Relay warnings: ${errors.join(', ')}`);
-    }
-
-    setRelays(normalized);
-    setNodeStatus('connecting');
+    setRuntimeStatus('connecting');
+    setRuntimeError(null);
 
     try {
-      const runtimeSnapshotJson = loadRuntimeSnapshot();
-      if (!runtimeSnapshotJson) {
-        throw new Error('No local signer snapshot found. Re-import your onboarding package.');
-      }
-      const node = createSignerNode({
-        mode: 'persisted',
-        relays: normalized
-      }, {
-        runtimeSnapshotJson
-      });
-
-      cleanupRef.current?.();
-      nodeRef.current = node;
-      cleanupRef.current = setupNodeListeners(node);
-
-      await connectSignerNode(node);
-
-      setNodeStatus('running');
-      setNodeError(null);
-      setActiveNode(node);
-      addLog('READY', 'Signer node ready');
-      addLog('INFO', `Connected to ${normalized.length} relays`);
-
-      const updatedPeers = await refreshPeerStatuses(node, peers);
-      setPeers(updatedPeers);
-    } catch (err) {
-      const rawMessage = err instanceof Error ? err.message : 'Failed to start signer';
-      const message =
-        rawMessage.includes('Onboard response timed out')
-          ? 'Onboarding timed out. Ensure demo relay/peer are running and your saved onboarding package matches the current demo keyset (Clear Profile and re-onboard if you regenerated keys).'
-          : rawMessage;
-      setNodeError(message);
-      setNodeStatus('stopped');
-      addLog('ERROR', 'Failed to start signer', message);
-      stopSignerNode(nodeRef.current);
-      nodeRef.current = null;
-      setActiveNode(null);
+      await sendRuntimeControl('ensureConfiguredRuntime');
+      setRefreshTick((value) => value + 1);
+      await refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRuntimeError(message);
+      setRuntimeStatus('stopped');
     }
   };
 
-  const handleStop = () => {
-    cleanupRef.current?.();
-    cleanupRef.current = null;
-    stopSignerNode(nodeRef.current);
-    nodeRef.current = null;
-    setActiveNode(null);
-    setNodeStatus('stopped');
-    addLog('INFO', 'Signer stopped');
+  const handleStop = async () => {
+    try {
+      await sendRuntimeControl('stopRuntime');
+      setRefreshTick((value) => value + 1);
+      await refresh();
+    } catch (error) {
+      setRuntimeError(error instanceof Error ? error.message : String(error));
+    }
   };
 
-  const handlePingPeer = React.useCallback(
-    async (pubkey: string) => {
-      if (!nodeRef.current) {
-        addLog('INFO', 'Start the signer before pinging peers');
-        return { success: false };
-      }
+  const handleRefreshPeers = async () => {
+    try {
+      await sendRuntimeControl('refreshAllPeers');
+      setRefreshTick((value) => value + 1);
+      await refresh();
+    } catch (error) {
+      setRuntimeError(error instanceof Error ? error.message : String(error));
+    }
+  };
 
-      const peerAlias = peers.find((p) => p.pubkey === pubkey)?.alias || 'Peer';
-      addLog('PING', `Pinging ${peerAlias}...`);
-      const result = await pingSinglePeer(nodeRef.current, pubkey);
-
-      setPeers((prev) =>
-        prev.map((p) =>
-          p.pubkey === pubkey
-            ? { ...p, state: result.success ? 'online' : 'offline' }
-            : p
-        )
-      );
-
-      if (result.success) {
-        addLog('PING', `${peerAlias} responded${result.latency ? ` in ${result.latency}ms` : ''}`);
-      } else {
-        addLog('PING', `${peerAlias} did not respond${result.error ? `: ${result.error}` : ''}`);
-      }
-
-      return result;
-    },
-    [addLog, peers]
-  );
-
-  const handlePolicyChange = React.useCallback(
-    (pubkey: string, field: 'send' | 'receive', value: boolean) => {
-      const peerAlias = peers.find((p) => p.pubkey === pubkey)?.alias || 'Peer';
-
-      setPeers((prev) => {
-        const updated = prev.map((p) => (p.pubkey === pubkey ? { ...p, [field]: value } : p));
-        savePeerPolicies(
-          updated.map((p) => ({ pubkey: p.pubkey, send: p.send, receive: p.receive }))
-        );
-        return updated;
-      });
-
-      addLog('INFO', `${peerAlias} ${field} policy set to ${value ? 'allow' : 'deny'}`);
-
-      if (nodeRef.current && nodeStatus === 'running') {
-        const current = peers.find((p) => p.pubkey === pubkey);
-        const next = {
-          send: field === 'send' ? value : (current?.send ?? true),
-          receive: field === 'receive' ? value : (current?.receive ?? true)
-        };
-
-        void setPeerPolicy(nodeRef.current, pubkey, next)
-          .then(() => {
-            addLog('INFO', `${peerAlias} backend policy updated`);
-          })
-          .catch((error) => {
-            const message = error instanceof Error ? error.message : String(error);
-            addLog('WARN', `${peerAlias} backend policy update failed`, message);
-          });
-      }
-    },
-    [addLog, nodeStatus, peers]
-  );
-
-  const handleCopyPublicKey = async () => {
+  const handleCopy = async (field: 'group' | 'share') => {
     const value =
-      (nodeRef.current ? getPublicKeyFromNode(nodeRef.current) : null) ?? profile?.groupPublicKey;
+      field === 'group'
+        ? status?.publicKey ?? profile?.groupPublicKey
+        : status?.sharePublicKey ?? profile?.sharePublicKey;
     if (!value) return;
     try {
       await navigator.clipboard.writeText(value);
-      setCopiedPublicKey(true);
-      setTimeout(() => setCopiedPublicKey(false), 2000);
+      setCopiedField(field);
+      window.setTimeout(() => setCopiedField(null), 2000);
     } catch (err) {
-      logger.warn('ui', 'copy_public_key_failed', {
-        error_message: err instanceof Error ? err.message : String(err)
+      logger.warn('ui', 'copy_key_failed', {
+        field,
+        error_message: err instanceof Error ? err.message : String(err),
       });
     }
   };
 
-  const handleAddRelay = () => {
-    if (newRelayUrl && !relays.includes(newRelayUrl)) {
-      setRelays([...relays, newRelayUrl]);
-      setNewRelayUrl('');
-    }
-  };
-
-  const handleRemoveRelay = (urlToRemove: string) => {
-    setRelays(relays.filter((url) => url !== urlToRemove));
-  };
-
-  const isSignerRunning = nodeStatus === 'running';
-  const isConnecting = nodeStatus === 'connecting';
-  const canStart = profile && relays.length > 0;
-
-  const handleClearProfile = () => {
-    setShowClearModal(false);
-    logout();
-  };
+  const isSignerRunning = runtimeStatus === 'running';
+  const isConnecting = runtimeStatus === 'connecting';
+  const activationStage = status?.lifecycle.activation.stage ?? 'idle';
+  const runtimeControlLabel =
+    activationStage === 'failed'
+      ? 'Retry Runtime'
+      : isSignerRunning
+        ? 'Stop Signer'
+        : isConnecting
+          ? 'Starting...'
+          : 'Start Signer';
+  const runtimeSummaryLabel =
+    activationStage === 'ensuring_offscreen'
+      ? 'Ensuring offscreen runtime'
+      : activationStage === 'restoring_runtime' || activationStage === 'syncing_status'
+        ? 'Restoring runtime'
+        : activationStage === 'failed'
+          ? 'Runtime failed'
+          : isSignerRunning
+            ? 'Signer Running'
+            : 'Signer Stopped';
 
   if (!profile) {
     const emptyState = (
-      <ContentCard title="No onboarding profile" description="Complete v2 onboarding to configure this signer.">
+      <ContentCard title="No onboarding profile" description="Complete onboarding to configure this signer.">
         <div className="border border-blue-800/30 rounded-lg p-6">
           <Button variant="ghost" onClick={logout}>
             Go to onboarding
@@ -371,184 +262,50 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
         </div>
       </ContentCard>
     );
-    if (embedded) {
-      return emptyState;
-    }
+    if (embedded) return emptyState;
     return <PageLayout header={<AppHeader title="igloo-chrome" subtitle="browser signing device" />}>{emptyState}</PageLayout>;
   }
 
   const content = (
-    <>
-      <div className="space-y-6">
-        <div className="rounded-lg border border-cyan-900/40 bg-cyan-950/20 px-4 py-3 text-sm text-cyan-100">
-          Website requests enter through the extension bridge, background permissions, and the
-          offscreen runtime host. The visible dashboard stays operator-facing.
-        </div>
-        <div className="flex items-center">
-          <h2 className="text-blue-300 text-lg">Start your signer to handle requests</h2>
-          <span title="The signer must be running to handle request rounds through your configured relays.">
-            <HelpCircle size={18} className="ml-2 text-blue-400 cursor-help" />
-          </span>
-        </div>
-
-        <div className="border border-blue-800/30 rounded-lg p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <User className="h-5 w-5 text-blue-400" />
-            <span className="text-blue-200 font-medium">{profile.keysetName || 'Unnamed signer'}</span>
-          </div>
-
-          <div className="space-y-1.5">
-            <LabelRow label="Group Public Key" />
-            <div className="flex">
-              <Input
-                type="text"
-                value={profile.groupPublicKey || ''}
-                className="bg-gray-800/50 border-gray-700/50 text-blue-300 py-2 text-sm w-full font-mono"
-                readOnly
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleCopyPublicKey}
-                className="ml-2 bg-blue-800/30 text-blue-400 hover:text-blue-300 hover:bg-blue-800/50"
-                title="Copy public key"
-              >
-                <Copy className="h-5 w-5" />
-              </Button>
-            </div>
-            {copiedPublicKey && <div className="text-xs text-blue-300">Public key copied</div>}
-          </div>
-
-          <div className="flex items-center justify-between mt-2">
-            <div className="flex items-center gap-2">
-              <div
-                className={`w-3 h-3 rounded-full ${
-                  isSignerRunning
-                    ? 'bg-green-500 pulse-animation'
-                    : isConnecting
-                      ? 'bg-yellow-500 pulse-animation-yellow'
-                      : 'bg-red-500'
-                }`}
-              />
-              <span className="text-gray-300">
-                Signer {isSignerRunning ? 'Running' : isConnecting ? 'Connecting...' : 'Stopped'}
-              </span>
-            </div>
-            <Button
-              onClick={isSignerRunning ? handleStop : handleStart}
-              className={`px-6 py-2 ${
-                isSignerRunning ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
-              } transition-colors duration-200 text-sm font-medium`}
-              disabled={!canStart || isConnecting}
-            >
-              {isSignerRunning ? 'Stop Signer' : isConnecting ? 'Connecting...' : 'Start Signer'}
-            </Button>
-          </div>
-
-          {nodeError && (
-            <div className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
-              {nodeError}
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-3">
-          <div className="flex items-center">
-            <h3 className="text-blue-300 text-sm font-medium">Relay URLs</h3>
-            <span title="Ensure all participating signers share at least one common relay.">
-              <HelpCircle size={16} className="ml-2 text-blue-400 cursor-help" />
-            </span>
-          </div>
-          <div className="flex">
-            <Input
-              type="text"
-              placeholder="Add relay URL"
-              value={newRelayUrl}
-              onChange={(e) => setNewRelayUrl(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddRelay()}
-              className="bg-gray-800/50 border-gray-700/50 text-blue-300 py-2 text-sm w-full"
-              disabled={isSignerRunning || isConnecting}
-            />
-            <Button
-              onClick={handleAddRelay}
-              className="ml-2 bg-blue-800/30 text-blue-400 hover:text-blue-300 hover:bg-blue-800/50"
-              disabled={!newRelayUrl.trim() || isSignerRunning || isConnecting}
-            >
-              Add
-            </Button>
-          </div>
-
-          <div className="space-y-2">
-            {relays.map((relay, index) => (
-              <div key={index} className="flex justify-between items-center bg-gray-800/30 py-2 px-3 rounded-md">
-                <span className="text-blue-300 text-sm font-mono">{relay}</span>
-                <IconButton
-                  variant="destructive"
-                  size="sm"
-                  icon={<X className="h-4 w-4" />}
-                  onClick={() => handleRemoveRelay(relay)}
-                  tooltip="Remove relay"
-                  disabled={isSignerRunning || isConnecting || relays.length <= 1}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <PeerList
-            peers={peers}
-            onPing={handlePingPeer}
-            onPolicyChange={handlePolicyChange}
-            onRefreshAll={refreshAllPeers}
-            disabled={nodeStatus !== 'running'}
-          />
-
-          <EventLog entries={logs} onClear={() => setLogs([])} />
-        </div>
-      </div>
-
-      <ConfirmModal
-        isOpen={showClearModal}
-        title="Clear Onboarding Profile?"
-        message="This will delete your saved signer metadata, relay configuration, and runtime snapshot from this browser. This action cannot be undone."
-        confirmLabel="Clear Profile"
-        cancelLabel="Keep Profile"
-        onConfirm={handleClearProfile}
-        onCancel={() => setShowClearModal(false)}
-        variant="danger"
-      />
-    </>
-  );
-
-  if (embedded) {
-    return content;
-  }
-
-  return (
-    <PageLayout
-      header={
-        <AppHeader
-          title="igloo-chrome"
-          subtitle="dashboard + offscreen signer runtime"
-          right={
-            <Button variant="ghost" size="sm" onClick={() => setShowClearModal(true)}>
-              <Trash2 className="h-4 w-4 mr-1.5" />
-              Clear Profile
-            </Button>
-          }
-        />
+    <OperatorSignerPanel
+      profile={{
+        name: profile.keysetName || 'Unnamed signer',
+        groupPublicKey: profile.groupPublicKey,
+        sharePublicKey: profile.sharePublicKey,
+      }}
+      introMessage="The signer runtime is hosted by the extension background and offscreen document. This page is an operator console over that runtime."
+      runtimeState={runtimeStatus}
+      runtimeControlLabel={runtimeControlLabel}
+      runtimeSummaryLabel={runtimeSummaryLabel}
+      activationStage={status?.lifecycle.activation.stage ?? null}
+      activationUpdatedAt={status?.lifecycle.activation.updatedAt ?? null}
+      runtimeError={runtimeError}
+      sharePublicKey={status?.sharePublicKey ?? profile.sharePublicKey ?? ''}
+      groupPublicKey={status?.publicKey ?? profile.groupPublicKey ?? ''}
+      copiedField={copiedField}
+      onCopyGroupKey={() => void handleCopy('group')}
+      onCopyShareKey={() => void handleCopy('share')}
+      onPrimaryAction={isSignerRunning ? () => void handleStop() : () => void handleStart()}
+      primaryActionDisabled={isConnecting}
+      onRefreshPeers={() => void handleRefreshPeers()}
+      refreshPeersDisabled={!isSignerRunning}
+      peers={peers}
+      pendingOperations={
+        status?.runtimeDetails.summary?.pending_operations.map((operation) => ({
+          request_id: operation.request_id,
+          op_type: operation.op_type,
+          threshold: operation.threshold,
+          started_at: operation.started_at,
+          timeout_at: operation.timeout_at,
+          collected_responses: operation.collected_responses.length,
+          target_peers: operation.target_peers,
+        })) ?? []
       }
-    >
-      {content}
-    </PageLayout>
+      logs={logs}
+    />
   );
-}
 
-export default function SignerPage() {
-  return <SignerPanel />;
-}
+  if (embedded) return content;
 
-function LabelRow({ label }: { label: string }) {
-  return <div className="text-xs text-gray-400 font-medium">{label}</div>;
+  return <PageLayout header={<AppHeader title="igloo-chrome" subtitle="browser signing device" />}>{content}</PageLayout>;
 }

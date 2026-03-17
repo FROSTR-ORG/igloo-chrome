@@ -16,14 +16,16 @@
   ],
   "host_permissions": [
     "http://*/*",
-    "https://*/*"
+    "https://*/*",
+    "ws://*/*",
+    "wss://*/*"
   ],
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' http: https: ws: wss:;"
   },
   "options_page": "options.html",
   "action": {

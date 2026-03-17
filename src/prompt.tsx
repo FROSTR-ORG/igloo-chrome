@@ -1,7 +1,6 @@
 import * as React from 'react';
 import ReactDOM from 'react-dom/client';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button, Card, CardContent, CardHeader, CardTitle } from 'igloo-ui';
 import { getChromeApi } from '@/extension/chrome';
 import { MESSAGE_TYPE, isProviderMethod } from '@/extension/protocol';
 

@@ -27,10 +27,17 @@ This project is a Chrome MV3 signing-device extension for the FROSTR protocol. C
 
 ## Design expectations
 - Keep the background service worker thin.
+- Treat `bifrost-rs` as the source of signer truth.
 - Keep extension-facing provider behavior deterministic and well-tested.
 - Prefer explicit runtime contracts over implicit storage fallbacks.
 - Do not reintroduce legacy format compatibility unless there is a concrete requirement.
 - Keep dependencies minimal; avoid convenience packages unless they remove meaningful complexity.
+
+Cross-repo guidance:
+- [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)
+- [../../docs/policies/architecture-guidance.md](../../docs/policies/architecture-guidance.md)
+- [../../docs/policies/runtime-and-persistence-guidance.md](../../docs/policies/runtime-and-persistence-guidance.md)
+- [../../docs/policies/testing-guidance.md](../../docs/policies/testing-guidance.md)
 
 ## Code changes
 - Prefer small, direct components over generic abstractions.

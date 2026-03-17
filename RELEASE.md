@@ -16,6 +16,10 @@ Produce a deterministic browser-loadable extension candidate from the current re
 3. `npm run build`
 4. `npm run test:e2e`
 
+The current E2E release path uses infra-owned global setup to prebuild:
+- the unpacked extension
+- shared shell binaries under `../../build/igloo-shell-target`
+
 ## Versioning
 Keep these aligned:
 - `package.json`
@@ -43,6 +47,7 @@ Before handing off a candidate, verify:
 - `window.nostr.nip44.encrypt/decrypt()` succeed against a live responder
 - permissions can be reviewed and revoked
 - offscreen/runtime survives teardown and relaunch scenarios
+- status and peer views reflect signer-owned runtime state rather than extension-derived heuristics
 
 ## Candidate handoff
 Provide:
