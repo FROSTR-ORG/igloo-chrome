@@ -22,7 +22,7 @@ for (const artifact of expectedArtifacts) {
     await fs.access(artifactPath);
   } catch {
     throw new Error(
-      `Missing shared bridge artifact ${artifactPath}. Build igloo-shared first or use scripts/run-browser-app.sh.`
+      `Missing shared bridge artifact ${artifactPath}. Build igloo-shared first or use ./run.sh browser igloo-chrome build.`
     );
   }
 }

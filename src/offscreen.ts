@@ -1,9 +1,11 @@
 import { getChromeApi } from '@/extension/chrome';
+import { getPublicKey } from 'nostr-tools';
 import {
+  loadStoredProfileRecord,
   loadLifecycleHistory,
   loadLifecycleStatus,
-  loadRuntimeSnapshot as loadStoredRuntimeSnapshot,
-  saveRuntimeSnapshot as saveStoredRuntimeSnapshot,
+  loadUnlockedProfileKey,
+  saveStoredProfileRecord,
   updateOnboardingLifecycle,
   updateActivationLifecycle
 } from '@/extension/storage';
@@ -11,6 +13,7 @@ import {
   MESSAGE_TYPE,
   isRecord,
   type LifecycleFailure,
+  type PendingOnboardingProfile,
   type PolicyOverrideValue,
   type ProviderMethod,
   type StoredExtensionProfile
@@ -18,9 +21,13 @@ import {
 import {
   connectOnboardingPackageAndCaptureProfile,
   connectSignerNode,
+  decodeBfOnboardPackage,
+  decodeBfProfilePackage,
   clearRuntimePeerPolicyOverridesOnNode,
   createSignerNode,
+  deriveProfileIdFromShareSecret,
   deriveProfileIdFromSharePublicKey,
+  recoverProfileFromSharePackage,
   getPublicKeyFromNode,
   getRuntimeConfigFromNode,
   getRuntimeSnapshot,
@@ -35,6 +42,7 @@ import {
   stopSignerNode,
   updateRuntimeConfigOnNode,
   wipeRuntimeStateOnNode,
+  type BrowserProfilePackagePayload,
   type NodeWithEvents,
   type RuntimeStatusSummary
 } from '@/lib/igloo';
@@ -45,6 +53,10 @@ import {
   type ObservabilityEvent
 } from '@/lib/observability';
 import { normalizeSignerSettings, type SignerSettings } from '@/lib/signer-settings';
+import {
+  decryptLocalProfileBlobWithSessionKey,
+  reencryptLocalProfileBlobWithSessionKey
+} from '@/lib/profile-blob';
 
 type RuntimePhase = 'cold' | 'restoring' | 'ready' | 'degraded';
 
@@ -66,8 +78,6 @@ type RuntimeLifecycleSummary = {
   updatedAt: number | null;
 };
 
-const RUNTIME_SETTLE_TIMEOUT_MS = 20_000;
-const RUNTIME_SETTLE_POLL_INTERVAL_MS = 100;
 const NONCE_SNAPSHOT_WAIT_TIMEOUT_MS = 5_000;
 const NONCE_SNAPSHOT_POLL_INTERVAL_MS = 100;
 
@@ -75,28 +85,225 @@ let signerSessionPromise: Promise<SignerSession> | null = null;
 let signerSessionKey: string | null = null;
 let runtimePhase: RuntimePhase = 'cold';
 const logger = createLogger('igloo.offscreen');
+let pendingBootDiagnostics = createObservabilityBuffer(200);
+const PROFILE_STORAGE_RETRY_TIMEOUT_MS = 10_000;
+const PROFILE_STORAGE_RETRY_INTERVAL_MS = 100;
+const RUNTIME_CONNECT_TIMEOUT_MS = 10_000;
+
+function resetPendingBootDiagnostics() {
+  pendingBootDiagnostics = createObservabilityBuffer(200);
+}
+
+function pushPendingBootLog(
+  level: 'debug' | 'info' | 'warn' | 'error',
+  domain: string,
+  event: string,
+  detail?: Record<string, unknown>
+) {
+  const entry = logger[level](domain, event, detail);
+  if (entry) {
+    pendingBootDiagnostics.push(entry);
+  }
+}
+
+function publicKeyFromSecret(secretHex: string) {
+  const normalized = secretHex.trim().toLowerCase();
+  const bytes = new Uint8Array(normalized.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(normalized.slice(index * 2, index * 2 + 2), 16);
+  }
+  return getPublicKey(bytes).toLowerCase();
+}
+
+function normalizeHex32(value: string, label: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error(`Invalid ${label}.`);
+  }
+  return normalized;
+}
+
+function normalizeGroupMemberSharePublicKey(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (/^[0-9a-f]{64}$/.test(normalized)) {
+    return normalized;
+  }
+  if (/^(02|03)[0-9a-f]{64}$/.test(normalized)) {
+    return normalized.slice(2);
+  }
+  throw new Error('Invalid group member share public key.');
+}
+
+function groupJsonFromPayload(payload: BrowserProfilePackagePayload) {
+  return JSON.stringify(
+    {
+      group_pk: payload.group.groupPublicKey,
+      threshold: payload.group.threshold,
+      members: payload.group.members.map((member) => ({
+        idx: member.index,
+        pubkey: `02${member.sharePublicKey}`,
+      })),
+    },
+    null,
+    2
+  );
+}
+
+function shareJsonFromPayload(payload: BrowserProfilePackagePayload) {
+  const sharePublicKey = publicKeyFromSecret(payload.device.shareSecret);
+  const member =
+    payload.group.members.find((candidate) => candidate.sharePublicKey === sharePublicKey) ??
+    payload.group.members[0];
+  return JSON.stringify(
+    {
+      idx: member?.index ?? 1,
+      seckey: payload.device.shareSecret,
+    },
+    null,
+    2
+  );
+}
+
+async function runtimePayloadFromSnapshot(args: {
+  label: string;
+  relays: string[];
+  runtimeSnapshotJson: string;
+}) {
+  const snapshot = JSON.parse(args.runtimeSnapshotJson) as {
+    bootstrap?: {
+      group?: {
+        group_pk?: string;
+        threshold?: number;
+        members?: Array<{ idx?: number; pubkey?: string }>;
+      };
+      share?: {
+        seckey?: string;
+      };
+    };
+  };
+  const group = snapshot.bootstrap?.group;
+  const share = snapshot.bootstrap?.share;
+  const members =
+    group?.members?.map((member) => ({
+      index: Math.trunc(member.idx ?? 0),
+      sharePublicKey: normalizeGroupMemberSharePublicKey(member.pubkey ?? ''),
+    })) ?? [];
+  const shareSecret = normalizeHex32(share?.seckey ?? '', 'share secret');
+  const sharePublicKey = publicKeyFromSecret(shareSecret);
+
+  return {
+    profileId: await deriveProfileIdFromShareSecret(shareSecret),
+    version: 1,
+    device: {
+      name: args.label.trim() || 'Onboarded device',
+      shareSecret,
+      manualPeerPolicyOverrides: members
+        .filter((member) => member.sharePublicKey !== sharePublicKey)
+        .map((member) => ({
+          pubkey: member.sharePublicKey,
+          policy: {
+            request: { echo: 'unset', ping: 'unset', onboard: 'unset', sign: 'unset', ecdh: 'unset' },
+            respond: { echo: 'unset', ping: 'unset', onboard: 'unset', sign: 'unset', ecdh: 'unset' },
+          },
+        })),
+      remotePeerPolicyObservations: [],
+      relays: args.relays,
+    },
+    group: {
+      keysetName: args.label.trim() || 'Onboarded device',
+      groupPublicKey: normalizeHex32(group?.group_pk ?? '', 'group public key'),
+      threshold: Math.trunc(group?.threshold ?? 0),
+      totalCount: members.length,
+      members,
+    },
+  } satisfies BrowserProfilePackagePayload;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return await Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+    })
+  ]);
+}
+
+async function loadUnlockedProfileById(profileId: string, timeoutMs = PROFILE_STORAGE_RETRY_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  let attempt = 0;
+  while (Date.now() < deadline) {
+    attempt += 1;
+    const [record, sessionKeyB64] = await Promise.all([
+      loadStoredProfileRecord(profileId),
+      loadUnlockedProfileKey(profileId)
+    ]);
+    if (record && sessionKeyB64) {
+      const payload = await decryptLocalProfileBlobWithSessionKey(record.blob, sessionKeyB64);
+      const profile: StoredExtensionProfile = {
+        id: payload.profile.profileId,
+        keysetName: payload.profile.device.name,
+        relays: payload.profile.device.relays,
+        groupPublicKey: payload.profile.group.groupPublicKey,
+        publicKey: payload.profile.group.groupPublicKey,
+        sharePublicKey: publicKeyFromSecret(payload.profile.device.shareSecret),
+        peerPubkey: payload.peerPubkey ?? undefined,
+        signerSettings: normalizeSignerSettings(payload.signerSettings),
+        runtimeSnapshotJson: payload.runtimeSnapshotJson ?? undefined
+      };
+      logger.info('runtime', 'stored_profile_found', {
+        profile_id: profileId,
+        attempts: attempt
+      });
+      return {
+        record,
+        payload,
+        sessionKeyB64,
+        profile
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, PROFILE_STORAGE_RETRY_INTERVAL_MS));
+  }
+  return null;
+}
 
 async function publishRuntimeStatusUpdate(status: RuntimeStatusSummary | null, runtime: RuntimePhase) {
   const chromeApi = getChromeApi();
   if (!chromeApi?.runtime?.sendMessage) return;
   try {
-    const session = await signerSessionPromise?.catch(() => null);
-    await chromeApi.runtime.sendMessage({
+    void signerSessionPromise?.catch(() => null);
+    void chromeApi.runtime.sendMessage({
       type: MESSAGE_TYPE.RUNTIME_STATUS_UPDATED,
       runtime,
       status
-    });
+    }).catch(() => undefined);
   } catch {
     // Ignore background delivery failures; consumers can recover from runtime.status.
   }
 }
 
 async function loadPersistedRuntimeSnapshot(profileKey: string) {
-  return await loadStoredRuntimeSnapshot(profileKey);
+  return null;
 }
 
-async function savePersistedRuntimeSnapshot(profileKey: string, snapshotJson: string) {
-  await saveStoredRuntimeSnapshot(profileKey, snapshotJson);
+async function savePersistedRuntimeSnapshot(profileId: string, snapshotJson: string) {
+  const unlocked = await loadUnlockedProfileById(profileId);
+  if (!unlocked) {
+    throw new Error(`Stored profile ${profileId} was not found or unlocked.`);
+  }
+  const nextPayload = {
+    ...unlocked.payload,
+    runtimeSnapshotJson: snapshotJson
+  };
+  const nextBlob = await reencryptLocalProfileBlobWithSessionKey(
+    nextPayload,
+    unlocked.sessionKeyB64,
+    unlocked.record.blob
+  );
+  await saveStoredProfileRecord({
+    ...unlocked.record,
+    blob: nextBlob,
+    updatedAt: Date.now()
+  });
 }
 
 function toErrorMessage(error: unknown, fallback = 'Unknown error') {
@@ -120,16 +327,7 @@ function activationFailure(
 }
 
 function profileKey(profile: StoredExtensionProfile) {
-  const groupPublicKey =
-    typeof profile.groupPublicKey === 'string' && profile.groupPublicKey.trim()
-      ? profile.groupPublicKey
-      : typeof profile.publicKey === 'string' && profile.publicKey.trim()
-        ? profile.publicKey
-        : undefined;
-  return JSON.stringify({
-    groupPublicKey: groupPublicKey?.trim().toLowerCase(),
-    relays: profile.relays.map((relay) => relay.trim())
-  });
+  return profile.id.trim().toLowerCase();
 }
 
 async function stopSignerSession() {
@@ -163,7 +361,7 @@ function resolveRuntimePhase(session: Pick<SignerSession, 'node'>): RuntimePhase
 }
 
 async function syncRuntimeStatusUpdate(session: Pick<SignerSession, 'node'> | null, runtime = runtimePhase) {
-  await publishRuntimeStatusUpdate(session ? getRuntimeStatus(session.node) : null, runtime);
+  await Promise.resolve(publishRuntimeStatusUpdate(session ? getRuntimeStatus(session.node) : null, runtime));
 }
 
 function attachDiagnostics(node: NodeWithEvents) {
@@ -227,7 +425,8 @@ async function persistSessionSnapshot(session: Pick<SignerSession, 'key' | 'node
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const snapshot = getRuntimeSnapshot(session.node);
-      await savePersistedRuntimeSnapshot(session.key, JSON.stringify(snapshot));
+      const snapshotJson = JSON.stringify(snapshot);
+      await savePersistedRuntimeSnapshot(session.key, snapshotJson);
       return;
     } catch (error) {
       lastError = error;
@@ -235,6 +434,36 @@ async function persistSessionSnapshot(session: Pick<SignerSession, 'key' | 'node
     }
   }
   throw new Error(toErrorMessage(lastError, 'Failed to persist runtime snapshot'));
+}
+
+function persistSessionSnapshotInBackground(
+  session: Pick<SignerSession, 'key' | 'node'>,
+  detail: { profileId: string; profileKey: string }
+) {
+  void persistSessionSnapshot(session)
+    .then(() => {
+      logger.info('runtime', 'persist_snapshot_ok', detail);
+      pushPendingBootLog('info', 'runtime', 'persist_snapshot_ok', detail);
+    })
+    .catch((error) => {
+      logger.warn('runtime', 'persist_snapshot_failed', {
+        ...detail,
+        error_message: toErrorMessage(error)
+      });
+      pushPendingBootLog('warn', 'runtime', 'persist_snapshot_failed', {
+        ...detail,
+        error_message: toErrorMessage(error)
+      });
+    });
+}
+
+function persistSnapshotJsonInBackground(profileId: string, snapshotJson: string) {
+  void savePersistedRuntimeSnapshot(profileId, snapshotJson).catch((error) => {
+    logger.warn('runtime', 'snapshot_store_failed', {
+      profile_id: profileId,
+      error_message: toErrorMessage(error)
+    });
+  });
 }
 
 function snapshotHasUsableNonces(snapshot: unknown) {
@@ -269,76 +498,164 @@ async function waitForNonceSnapshot(node: NodeWithEvents) {
   return lastSnapshot ?? getRuntimeSnapshot(node);
 }
 
-async function waitForRuntimeSettlement(
-  session: Pick<SignerSession, 'node'>,
-  timeoutMs = RUNTIME_SETTLE_TIMEOUT_MS
+async function ensureSignerSession(
+  profile: StoredExtensionProfile,
+  profilePayload?: BrowserProfilePackagePayload
 ) {
-  const startedAt = Date.now();
-  let phase = resolveRuntimePhase(session);
-  while (phase === 'restoring' && Date.now() - startedAt < timeoutMs) {
-    await new Promise((resolve) => setTimeout(resolve, RUNTIME_SETTLE_POLL_INTERVAL_MS));
-    phase = resolveRuntimePhase(session);
-  }
-  return phase;
-}
-
-async function ensureSignerSession(profile: StoredExtensionProfile) {
   const nextKey = profileKey(profile);
   if (signerSessionPromise && signerSessionKey === nextKey) {
+    logger.info('runtime', 'ensure_session_reuse', {
+      profile_id: profile.id,
+      profile_key: nextKey
+    });
     return await signerSessionPromise;
   }
 
   await stopSignerSession();
+  resetPendingBootDiagnostics();
+  pushPendingBootLog('info', 'runtime', 'ensure_session_reset', {
+    profile_id: profile.id,
+    profile_key: nextKey
+  });
 
   signerSessionKey = nextKey;
   runtimePhase = 'restoring';
   signerSessionPromise = Promise.resolve()
     .then(async () => {
-      await updateActivationLifecycle('restoring_runtime', 'offscreen', 'restoring', {
+      logger.info('runtime', 'ensure_session_begin', {
+        profile_id: profile.id,
+        profile_key: nextKey
+      });
+      pushPendingBootLog('info', 'runtime', 'ensure_session_lifecycle_update_begin', {
+        profile_id: profile.id,
+        profile_key: nextKey,
+        stage: 'restoring_runtime'
+      });
+      void updateActivationLifecycle('restoring_runtime', 'offscreen', 'restoring', {
         profileKey: nextKey
-      }).catch(() => undefined);
+      })
+        .then(() => {
+          pushPendingBootLog('info', 'runtime', 'ensure_session_lifecycle_update_ok', {
+            profile_id: profile.id,
+            profile_key: nextKey,
+            stage: 'restoring_runtime'
+          });
+        })
+        .catch((error) => {
+          pushPendingBootLog('warn', 'runtime', 'ensure_session_lifecycle_update_failed', {
+            profile_id: profile.id,
+            profile_key: nextKey,
+            stage: 'restoring_runtime',
+            error_message: toErrorMessage(error)
+          });
+        });
+      pushPendingBootLog('info', 'runtime', 'ensure_session_snapshot_load_begin', {
+        profile_id: profile.id,
+        profile_key: nextKey,
+        snapshot_from_profile:
+          typeof profile.runtimeSnapshotJson === 'string' && profile.runtimeSnapshotJson.trim().length > 0
+      });
       const snapshotJson =
         typeof profile.runtimeSnapshotJson === 'string' && profile.runtimeSnapshotJson.trim().length > 0
           ? profile.runtimeSnapshotJson
           : await loadPersistedRuntimeSnapshot(nextKey);
       const snapshotAvailable = typeof snapshotJson === 'string' && snapshotJson.trim().length > 0;
-      if (!snapshotAvailable) {
-        const failure = activationFailure(
-          'snapshot_missing',
-          'No runtime snapshot found. Re-import your onboarding package.'
-        );
-        await updateActivationLifecycle('failed', 'offscreen', 'cold', {
-          profileKey: nextKey
-        }, {
-          lastError: failure,
-          restoredFromSnapshot: false
-        }).catch(() => undefined);
-        throw new Error(failure.message);
-      }
-      const node = createSignerNode(
-        {
-          mode: 'persisted',
-          relays: profile.relays,
-          signerSettings: profile.signerSettings
-        },
-        {
-          runtimeSnapshotJson: snapshotJson
-        }
-      );
+      const bootMode = snapshotAvailable ? 'persisted' : 'profile';
+      pushPendingBootLog('info', 'runtime', 'ensure_session_snapshot_resolved', {
+        profile_id: profile.id,
+        profile_key: nextKey,
+        snapshot_available: snapshotAvailable
+      });
+      logger.info('runtime', 'ensure_session_snapshot_resolved', {
+        profile_id: profile.id,
+        profile_key: nextKey,
+        snapshot_available: snapshotAvailable,
+        snapshot_source:
+          typeof profile.runtimeSnapshotJson === 'string' && profile.runtimeSnapshotJson.trim().length > 0
+            ? 'profile'
+            : 'storage'
+      });
+      pushPendingBootLog('info', 'runtime', 'ensure_session_create_node_begin', {
+        profile_id: profile.id,
+        profile_key: nextKey,
+        relay_count: profile.relays.length
+      });
+      logger.info('runtime', 'ensure_session_create_node_begin', {
+        profile_id: profile.id,
+        profile_key: nextKey,
+        relay_count: profile.relays.length
+      });
+      const node =
+        snapshotAvailable
+          ? createSignerNode(
+              {
+                mode: 'persisted',
+                relays: profile.relays,
+                signerSettings: profile.signerSettings
+              },
+              {
+                runtimeSnapshotJson: snapshotJson
+              }
+            )
+          : profilePayload
+            ? createSignerNode({
+                mode: 'profile',
+                relays: profile.relays,
+                signerSettings: profile.signerSettings,
+                groupPackageJson: groupJsonFromPayload(profilePayload),
+                sharePackageJson: shareJsonFromPayload(profilePayload)
+              })
+            : (() => {
+                throw new Error('No runtime snapshot found. Unlock or import the profile again.');
+              })();
+      logger.info('runtime', 'ensure_session_create_node_ok', {
+        profile_id: profile.id,
+        profile_key: nextKey
+      });
+      pushPendingBootLog('info', 'runtime', 'ensure_session_create_node_ok', {
+        profile_id: profile.id,
+        profile_key: nextKey
+      });
       const attached = attachDiagnostics(node);
       const bootstrapStart = logger.info('runtime', 'bootstrap_begin', {
-        mode: 'persisted',
+        mode: bootMode,
+        profile_id: profile.id,
         profile_key: nextKey
       });
       if (bootstrapStart) {
         attached.push(bootstrapStart);
       }
       try {
-        await connectSignerNode(node);
+        pushPendingBootLog('info', 'runtime', 'connect_node_begin', {
+          profile_id: profile.id,
+          profile_key: nextKey
+        });
+        logger.info('runtime', 'connect_node_begin', {
+          profile_id: profile.id,
+          profile_key: nextKey
+        });
+        await withTimeout(
+          connectSignerNode(node),
+          RUNTIME_CONNECT_TIMEOUT_MS,
+          'Signer runtime connect'
+        );
+        logger.info('runtime', 'connect_node_ok', {
+          profile_id: profile.id,
+          profile_key: nextKey
+        });
+        pushPendingBootLog('info', 'runtime', 'connect_node_ok', {
+          profile_id: profile.id,
+          profile_key: nextKey
+        });
       } catch (error) {
         const failure = activationFailure('runtime_restore_failed', toErrorMessage(error));
+        pushPendingBootLog('error', 'runtime', 'bootstrap_failed', {
+          profile_id: profile.id,
+          profile_key: nextKey,
+          error_message: failure.message
+        });
         const bootstrapFailure = logger.error('runtime', 'bootstrap_failed', {
-          mode: 'persisted',
+          mode: bootMode,
           profile_key: nextKey,
           error_message: failure.message
         });
@@ -350,7 +667,7 @@ async function ensureSignerSession(profile: StoredExtensionProfile) {
           profileKey: nextKey
         }, {
           lastError: failure,
-          restoredFromSnapshot: true
+          restoredFromSnapshot: snapshotAvailable
         }).catch(() => undefined);
         throw new Error(failure.message);
       }
@@ -372,12 +689,11 @@ async function ensureSignerSession(profile: StoredExtensionProfile) {
             profileKey: nextKey
           },
           {
-            restoredFromSnapshot: true
+            restoredFromSnapshot: snapshotAvailable
           }
         ).catch(() => undefined);
         void publishRuntimeStatusUpdate(status as RuntimeStatusSummary, runtimePhase);
       });
-      await persistSessionSnapshot(session);
       runtimePhase = resolveRuntimePhase(session);
       await updateActivationLifecycle(
         runtimePhase === 'ready' ? 'ready' : runtimePhase === 'degraded' ? 'degraded' : 'restoring_runtime',
@@ -387,15 +703,47 @@ async function ensureSignerSession(profile: StoredExtensionProfile) {
           profileKey: nextKey
         },
         {
-          restoredFromSnapshot: true
+          restoredFromSnapshot: snapshotAvailable
         }
       ).catch(() => undefined);
       await syncRuntimeStatusUpdate(session, runtimePhase);
+      logger.info('runtime', 'ensure_session_ready', {
+        profile_id: profile.id,
+        profile_key: nextKey,
+        runtime: runtimePhase
+      });
+      pushPendingBootLog('info', 'runtime', 'ensure_session_ready', {
+        profile_id: profile.id,
+        profile_key: nextKey,
+        runtime: runtimePhase
+      });
+      logger.info('runtime', 'persist_snapshot_begin', {
+        profile_id: profile.id,
+        profile_key: nextKey
+      });
+      pushPendingBootLog('info', 'runtime', 'persist_snapshot_begin', {
+        profile_id: profile.id,
+        profile_key: nextKey
+      });
+      persistSessionSnapshotInBackground(session, {
+        profileId: profile.id,
+        profileKey: nextKey
+      });
       return {
         ...session
       };
     })
     .catch((error) => {
+      pushPendingBootLog('error', 'runtime', 'ensure_session_failed', {
+        profile_id: profile.id,
+        profile_key: nextKey,
+        error_message: toErrorMessage(error)
+      });
+      logger.error('runtime', 'ensure_session_failed', {
+        profile_id: profile.id,
+        profile_key: nextKey,
+        error_message: toErrorMessage(error)
+      });
       signerSessionPromise = null;
       signerSessionKey = null;
       runtimePhase = 'cold';
@@ -436,8 +784,14 @@ async function handleNostrMethod(
         throw new Error('signEvent requires an event payload');
       }
       const session = await ensureSignerSession(profile);
+      await prepareSignOnNode(session.node);
       const signed = await signNostrEvent(session.node, params.event);
-      await persistSessionSnapshot(session);
+      runtimePhase = resolveRuntimePhase(session);
+      void syncRuntimeStatusUpdate(session, runtimePhase);
+      persistSessionSnapshotInBackground(session, {
+        profileId: profile.id,
+        profileKey: session.key
+      });
       return signed;
     }
     case MESSAGE_TYPE.NOSTR_NIP04_ENCRYPT:
@@ -448,8 +802,14 @@ async function handleNostrMethod(
         throw new Error('nip44.encrypt requires pubkey and plaintext');
       }
       const session = await ensureSignerSession(profile);
+      await prepareEcdhOnNode(session.node);
       const ciphertext = await nip44EncryptWithNode(session.node, params.pubkey, params.plaintext);
-      await persistSessionSnapshot(session);
+      runtimePhase = resolveRuntimePhase(session);
+      void syncRuntimeStatusUpdate(session, runtimePhase);
+      persistSessionSnapshotInBackground(session, {
+        profileId: profile.id,
+        profileKey: session.key
+      });
       return ciphertext;
     }
     case MESSAGE_TYPE.NOSTR_NIP44_DECRYPT: {
@@ -457,8 +817,14 @@ async function handleNostrMethod(
         throw new Error('nip44.decrypt requires pubkey and ciphertext');
       }
       const session = await ensureSignerSession(profile);
+      await prepareEcdhOnNode(session.node);
       const plaintext = await nip44DecryptWithNode(session.node, params.pubkey, params.ciphertext);
-      await persistSessionSnapshot(session);
+      runtimePhase = resolveRuntimePhase(session);
+      void syncRuntimeStatusUpdate(session, runtimePhase);
+      persistSessionSnapshotInBackground(session, {
+        profileId: profile.id,
+        profileKey: session.key
+      });
       return plaintext;
     }
     default:
@@ -468,6 +834,8 @@ async function handleNostrMethod(
 
 async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
   switch (rpcType) {
+    case 'offscreen.ping':
+      return { ready: true };
     case 'onboarding.connect': {
       const input = isRecord(payload?.input) ? payload.input : null;
       const onboardPackage =
@@ -481,6 +849,7 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
       if (!onboardPackage || !onboardPassword) {
         throw new Error('onboarding.connect requires package and password');
       }
+      const decodedPackage = await decodeBfOnboardPackage(onboardPackage, onboardPassword);
 
       await updateOnboardingLifecycle('decoding_package', 'offscreen', {
         packageLength: onboardPackage.length
@@ -515,8 +884,13 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
           peerPubkey: result.decoded.peerPubkey,
           relayCount: result.decoded.relays.length,
         }).catch(() => undefined);
-        const profile: StoredExtensionProfile = {
-          id: await deriveProfileIdFromSharePublicKey(result.profile.sharePublicKey ?? result.decoded.publicKey),
+        const payload = await runtimePayloadFromSnapshot({
+          label: result.profile.keysetName?.trim() || 'Onboarded device',
+          relays: decodedPackage.relays,
+          runtimeSnapshotJson: result.runtimeSnapshotJson
+        });
+        const pendingProfile: PendingOnboardingProfile = {
+          id: payload.profileId,
           keysetName: result.profile.keysetName,
           relays: result.profile.relays,
           groupPublicKey: result.profile.groupPublicKey,
@@ -525,13 +899,13 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
           peerPubkey: result.profile.peerPubkey,
           signerSettings: normalizeSignerSettings(result.profile.signerSettings),
           runtimeSnapshotJson: result.runtimeSnapshotJson,
+          profilePayload: payload,
         };
-        await savePersistedRuntimeSnapshot(profileKey(profile), result.runtimeSnapshotJson);
         await updateOnboardingLifecycle('profile_persisted', 'offscreen', {
           peerPubkey: result.decoded.peerPubkey,
           relayCount: result.decoded.relays.length,
         }).catch(() => undefined);
-        return profile;
+        return pendingProfile;
       } catch (error) {
         const message = toErrorMessage(error);
         const failure = activationFailure(
@@ -545,12 +919,128 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
         throw error;
       }
     }
+    case 'profile.import_bfprofile': {
+      const packageText =
+        typeof payload?.packageText === 'string' ? payload.packageText.trim() : undefined;
+      const password =
+        typeof payload?.password === 'string' ? payload.password : undefined;
+      if (!packageText || !password) {
+        throw new Error('profile.import_bfprofile requires package and password');
+      }
+      const decoded = await decodeBfProfilePackage(packageText, password);
+      const sharePublicKey = publicKeyFromSecret(decoded.device.shareSecret);
+      const profile: StoredExtensionProfile = {
+        id: decoded.profileId,
+        keysetName: decoded.device.name,
+        relays: decoded.device.relays,
+        groupPublicKey: decoded.group.groupPublicKey,
+        publicKey: decoded.group.groupPublicKey,
+        sharePublicKey,
+        signerSettings: normalizeSignerSettings(),
+      };
+      return profile;
+    }
+    case 'profile.import_bfprofile_payload': {
+      const packageText =
+        typeof payload?.packageText === 'string' ? payload.packageText.trim() : undefined;
+      const password =
+        typeof payload?.password === 'string' ? payload.password : undefined;
+      if (!packageText || !password) {
+        throw new Error('profile.import_bfprofile_payload requires package and password');
+      }
+      const decoded = await decodeBfProfilePackage(packageText, password);
+      return {
+        profilePayload: decoded
+      };
+    }
+    case 'profile.recover_bfshare': {
+      const packageText =
+        typeof payload?.packageText === 'string' ? payload.packageText.trim() : undefined;
+      const password =
+        typeof payload?.password === 'string' ? payload.password : undefined;
+      if (!packageText || !password) {
+        throw new Error('profile.recover_bfshare requires package and password');
+      }
+      const recovered = await recoverProfileFromSharePackage(packageText, password);
+      const sharePublicKey = publicKeyFromSecret(recovered.share.shareSecret);
+      const profile: StoredExtensionProfile = {
+        id: recovered.profile.profileId,
+        keysetName: recovered.profile.device.name,
+        relays: recovered.profile.device.relays,
+        groupPublicKey: recovered.profile.group.groupPublicKey,
+        publicKey: recovered.profile.group.groupPublicKey,
+        sharePublicKey,
+        signerSettings: normalizeSignerSettings(),
+      };
+      return profile;
+    }
+    case 'profile.recover_bfshare_payload': {
+      const packageText =
+        typeof payload?.packageText === 'string' ? payload.packageText.trim() : undefined;
+      const password =
+        typeof payload?.password === 'string' ? payload.password : undefined;
+      if (!packageText || !password) {
+        throw new Error('profile.recover_bfshare_payload requires package and password');
+      }
+      const recovered = await recoverProfileFromSharePackage(packageText, password);
+      return {
+        profilePayload: recovered.profile
+      };
+    }
     case 'runtime.ensure':
-      if (payload?.profile && typeof payload.profile === 'object') {
-        const session = await ensureSignerSession(payload.profile as StoredExtensionProfile);
-        await persistSessionSnapshot(session);
-        runtimePhase = await waitForRuntimeSettlement(session);
+      if (typeof payload?.profileId === 'string' && payload.profileId.trim()) {
+        const profileId = payload.profileId.trim().toLowerCase();
+        await updateActivationLifecycle('restoring_runtime', 'offscreen', 'restoring', {
+          profileId
+        }).catch(() => undefined);
+        const stored = await loadUnlockedProfileById(profileId);
+        if (!stored) {
+          throw new Error(`Stored profile ${profileId} was not found.`);
+        }
+        logger.info('runtime', 'rpc_ensure_begin', {
+          profile_id: stored.profile.id
+        });
+        const session = await ensureSignerSession(stored.profile, stored.payload.profile);
+        refreshAllPeersOnNode(session.node);
+        runtimePhase = resolveRuntimePhase(session);
         await syncRuntimeStatusUpdate(session, runtimePhase);
+        logger.info('runtime', 'rpc_ensure_ok', {
+          profile_id: stored.profile.id,
+          runtime: runtimePhase
+        });
+        return { runtime: runtimePhase };
+      }
+      if (payload?.profile && typeof payload.profile === 'object') {
+        const profilePayload =
+          payload?.profilePayload && typeof payload.profilePayload === 'object'
+            ? (payload.profilePayload as BrowserProfilePackagePayload)
+            : undefined;
+        await updateActivationLifecycle('restoring_runtime', 'offscreen', 'restoring', {
+          profileId:
+            typeof (payload.profile as StoredExtensionProfile).id === 'string'
+              ? (payload.profile as StoredExtensionProfile).id
+              : undefined
+        }).catch(() => undefined);
+        logger.info('runtime', 'rpc_ensure_begin', {
+          profile_id:
+            typeof (payload.profile as StoredExtensionProfile).id === 'string'
+              ? (payload.profile as StoredExtensionProfile).id
+              : null
+        });
+        const session = await ensureSignerSession(
+          payload.profile as StoredExtensionProfile,
+          profilePayload
+        );
+        refreshAllPeersOnNode(session.node);
+        runtimePhase = resolveRuntimePhase(session);
+        await syncRuntimeStatusUpdate(session, runtimePhase);
+        logger.info('runtime', 'rpc_ensure_ok', {
+          profile_id:
+            typeof (payload.profile as StoredExtensionProfile).id === 'string'
+              ? (payload.profile as StoredExtensionProfile).id
+              : null,
+          runtime: runtimePhase
+        });
         return { runtime: runtimePhase };
       }
       return { runtime: signerSessionPromise ? runtimePhase : ('cold' as const) };
@@ -586,7 +1076,7 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
       let snapshotError: string | null = null;
       try {
         snapshot = getRuntimeSnapshot(session.node);
-        await savePersistedRuntimeSnapshot(session.key, JSON.stringify(snapshot));
+        persistSnapshotJsonInBackground(session.key, JSON.stringify(snapshot));
       } catch (error) {
         snapshotError = toErrorMessage(error);
       }
@@ -597,6 +1087,15 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
         snapshotError,
         lifecycle: getLifecycleSummary(session.diagnostics())
       };
+    }
+    case 'runtime.persist_snapshot': {
+      const profileId = typeof payload?.profileId === 'string' ? payload.profileId.trim().toLowerCase() : '';
+      const snapshotJson = typeof payload?.snapshotJson === 'string' ? payload.snapshotJson.trim() : '';
+      if (!profileId || !snapshotJson) {
+        throw new Error('runtime.persist_snapshot requires profileId and snapshotJson');
+      }
+      await savePersistedRuntimeSnapshot(profileId, snapshotJson);
+      return { ok: true };
     }
     case 'runtime.read_config': {
       const session = await signerSessionPromise;
@@ -669,8 +1168,11 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
       }
       const readiness = await prepareSignOnNode(session.node);
       runtimePhase = resolveRuntimePhase(session);
-      await persistSessionSnapshot(session);
       await syncRuntimeStatusUpdate(session, runtimePhase);
+      persistSessionSnapshotInBackground(session, {
+        profileId: session.key,
+        profileKey: session.key
+      });
       return {
         runtime: runtimePhase,
         readiness
@@ -683,8 +1185,11 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
       }
       const readiness = await prepareEcdhOnNode(session.node);
       runtimePhase = resolveRuntimePhase(session);
-      await persistSessionSnapshot(session);
       await syncRuntimeStatusUpdate(session, runtimePhase);
+      persistSessionSnapshotInBackground(session, {
+        profileId: session.key,
+        profileKey: session.key
+      });
       return {
         runtime: runtimePhase,
         readiness
@@ -724,14 +1229,30 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
       if (!signerSessionPromise) {
         return {
           runtime: 'cold' as const,
-          diagnostics: [],
-          dropped: 0,
+          diagnostics: pendingBootDiagnostics.snapshot(),
+          dropped: pendingBootDiagnostics.dropped(),
           runtimeStatus: null,
           lifecycle,
           lifecycleHistory
         };
       }
-      const session = await signerSessionPromise;
+      const sessionResult = await Promise.race([
+        signerSessionPromise.then((session) => ({ kind: 'ready' as const, session })),
+        new Promise<{ kind: 'pending' }>((resolve) => {
+          setTimeout(() => resolve({ kind: 'pending' }), 250);
+        })
+      ]);
+      if (sessionResult.kind === 'pending') {
+        return {
+          runtime: runtimePhase,
+          diagnostics: pendingBootDiagnostics.snapshot(),
+          dropped: pendingBootDiagnostics.dropped(),
+          runtimeStatus: null,
+          lifecycle,
+          lifecycleHistory
+        };
+      }
+      const session = sessionResult.session;
       const runtimeStatus = getRuntimeStatus(session.node);
       return {
         runtime: runtimePhase,

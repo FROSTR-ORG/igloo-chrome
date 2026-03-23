@@ -18,32 +18,48 @@ import {
   type RuntimeSnapshotDetails,
   type RuntimeStatusDetails,
   type RuntimeStatusSummary,
+  type StoredProfileSummary,
   type StoredExtensionProfile,
+  type PendingOnboardingProfile,
   type PromptResponseMessage,
   type ProviderMethod,
   type ProviderRequestEnvelope
 } from '@/extension/protocol';
 import {
-  clearExtensionProfile,
-  loadExtensionAppState,
+  loadActiveProfileId,
+  loadStoredProfileRecord,
+  loadStoredProfileRecords,
   loadLifecycleHistory,
   loadLifecycleStatus,
-  loadExtensionProfile,
+  loadUnlockedProfileKey,
   loadPermissionPolicies,
-  loadRuntimeSnapshot as loadPersistedRuntimeSnapshot,
-  mirrorProfileToExtensionStorage,
   resolvePermissionDecision,
+  deleteStoredProfileRecord,
   saveExtensionAppState,
   savePermissionDecision,
-  saveRuntimeSnapshot as savePersistedRuntimeSnapshot,
+  saveStoredProfileRecord,
+  saveUnlockedProfileKey,
+  clearUnlockedProfileKeys,
+  setActiveProfileId,
   updateOnboardingLifecycle,
   updateActivationLifecycle
 } from '@/extension/storage';
 import { createLogger } from '@/lib/observability';
 import { normalizeSignerSettings } from '@/lib/signer-settings';
 import type { LifecycleFailure } from '@/extension/protocol';
-import { DEFAULT_RELAYS, normalizeRelays } from '@/lib/igloo';
-import { deriveProfileIdFromSharePublicKey } from '@/lib/igloo';
+import {
+  DEFAULT_RELAYS,
+  normalizeRelays,
+} from '@/lib/igloo';
+import {
+  decryptLocalProfileBlobWithPassword,
+  decryptLocalProfileBlobWithSessionKey,
+  encryptLocalProfileBlobPayload,
+  reencryptLocalProfileBlobWithSessionKey,
+  type LocalProfileBlobPayload,
+  type LocalProfileBlobRecord
+} from '@/lib/profile-blob';
+import { getPublicKey } from 'nostr-tools';
 
 type PromptState = {
   request: ProviderRequestEnvelope;
@@ -70,16 +86,40 @@ type RuntimeDiagnosticsResult = {
   runtimeStatus?: RuntimeStatusSummary | null;
 };
 
+type ImportedProfilePayloadResult = {
+  profilePayload: LocalProfileBlobPayload['profile'];
+};
+
 const pendingPrompts = new Map<string, PromptState>();
 const promptWindowMap = new Map<number, string>();
 let creatingOffscreen: Promise<void> | null = null;
+let waitingForOffscreenReady: Promise<void> | null = null;
 let ensuringConfiguredRuntime: Promise<void> | null = null;
 let offscreenCreatedWithoutContextApi = false;
+const OFFSCREEN_RUNTIME_ENSURE_TIMEOUT_MS = 10_000;
+const OFFSCREEN_LONG_RPC_TIMEOUT_MS = 10_000;
+const OFFSCREEN_DEFAULT_RPC_TIMEOUT_MS = 5_000;
 let lastRuntimeStatusCache: RuntimeStatusResult = {
   runtime: 'cold',
   status: null
 };
 const logger = createLogger('igloo.background');
+
+function hexToBytes(hex: string) {
+  const normalized = hex.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error('Invalid share secret.');
+  }
+  const bytes = new Uint8Array(normalized.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(normalized.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function publicKeyFromSecret(secretHex: string) {
+  return getPublicKey(hexToBytes(secretHex)).toLowerCase();
+}
 
 function toErrorMessage(error: unknown, fallback = 'Unknown error') {
   if (error instanceof Error && error.message) return error.message;
@@ -121,11 +161,9 @@ function profileKey(profile: {
 async function normalizeProfileInput(profile: StoredExtensionProfile): Promise<StoredExtensionProfile> {
   const { relays } = normalizeRelays(profile.relays?.length ? profile.relays : DEFAULT_RELAYS);
   const sharePublicKey = profile.sharePublicKey?.trim().toLowerCase() || undefined;
-  const id =
-    profile.id?.trim().toLowerCase() ||
-    (sharePublicKey ? await deriveProfileIdFromSharePublicKey(sharePublicKey) : undefined);
+  const id = profile.id?.trim().toLowerCase();
   if (!id) {
-    throw new Error('Profile is missing a share public key.');
+    throw new Error('Profile is missing an id.');
   }
   return {
     ...profile,
@@ -140,11 +178,222 @@ async function normalizeProfileInput(profile: StoredExtensionProfile): Promise<S
   };
 }
 
-async function rejectDuplicateProfile(profile: StoredExtensionProfile) {
-  const existing = await loadExtensionProfile();
-  if (existing?.id?.trim().toLowerCase() === profile.id) {
-    throw new Error(`Device profile ${profile.keysetName ?? 'device'} already exists.`);
+function storedProfileSummaryFromRecord(
+  record: LocalProfileBlobRecord,
+  unlockedProfileIds: Set<string>
+): StoredProfileSummary {
+  return {
+    id: record.id,
+    label: record.label,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    unlocked: unlockedProfileIds.has(record.id)
+  };
+}
+
+function toRuntimeProfile(payload: LocalProfileBlobPayload): StoredExtensionProfile {
+  const relays = normalizeRelays(payload.profile.device.relays?.length ? payload.profile.device.relays : DEFAULT_RELAYS)
+    .relays;
+  const sharePublicKey = publicKeyFromSecret(payload.profile.device.shareSecret);
+  return {
+    id: payload.profile.profileId,
+    keysetName: payload.profile.device.name?.trim() || undefined,
+    relays,
+    groupPublicKey: payload.profile.group.groupPublicKey.trim().toLowerCase(),
+    publicKey: payload.profile.group.groupPublicKey.trim().toLowerCase(),
+    sharePublicKey,
+    peerPubkey: payload.peerPubkey?.trim().toLowerCase() || undefined,
+    signerSettings: normalizeSignerSettings(payload.signerSettings),
+    runtimeSnapshotJson:
+      typeof payload.runtimeSnapshotJson === 'string' && payload.runtimeSnapshotJson.trim().length > 0
+        ? payload.runtimeSnapshotJson
+        : undefined
+  };
+}
+
+async function rejectDuplicateProfileId(profileId: string) {
+  const existing = await loadStoredProfileRecords();
+  if (existing.some((entry) => entry.id === profileId)) {
+    throw new Error('Device profile already exists.');
   }
+}
+
+async function loadUnlockedRuntimeProfile(profileId: string) {
+  const [record, sessionKeyB64] = await Promise.all([
+    loadStoredProfileRecord(profileId),
+    loadUnlockedProfileKey(profileId)
+  ]);
+  if (!record) {
+    throw new Error('Selected profile was not found.');
+  }
+  if (!sessionKeyB64) {
+    return {
+      record,
+      payload: null,
+      runtimeProfile: null,
+      sessionKeyB64: null
+    };
+  }
+  const payload = await decryptLocalProfileBlobWithSessionKey(record.blob, sessionKeyB64);
+  return {
+    record,
+    payload,
+    runtimeProfile: toRuntimeProfile(payload),
+    sessionKeyB64
+  };
+}
+
+async function loadProfileForReplacement(profileId: string, password?: string | null) {
+  const unlocked = await loadUnlockedRuntimeProfile(profileId);
+  if (unlocked.payload && unlocked.sessionKeyB64) {
+    return unlocked;
+  }
+  const record = unlocked.record ?? (await loadStoredProfileRecord(profileId));
+  if (!record) {
+    throw new Error('Selected profile was not found.');
+  }
+  if (!password?.trim()) {
+    throw new Error('Selected profile is locked.');
+  }
+  let decrypted: Awaited<ReturnType<typeof decryptLocalProfileBlobWithPassword>>;
+  try {
+    decrypted = await decryptLocalProfileBlobWithPassword(record.blob, password);
+  } catch {
+    throw new Error('Invalid profile password.');
+  }
+  return {
+    record,
+    payload: decrypted.payload,
+    runtimeProfile: toRuntimeProfile(decrypted.payload),
+    sessionKeyB64: decrypted.sessionKeyB64
+  };
+}
+
+async function loadActiveRuntimeProfile() {
+  const activeProfileId = await loadActiveProfileId();
+  if (!activeProfileId) {
+    return null;
+  }
+  const unlocked = await loadUnlockedRuntimeProfile(activeProfileId);
+  if (!unlocked.runtimeProfile) {
+    return null;
+  }
+  return {
+    activeProfileId,
+    ...unlocked
+  };
+}
+
+async function createStoredProfileRecord(
+  payload: LocalProfileBlobPayload,
+  password: string
+) {
+  const normalizedPayload: LocalProfileBlobPayload = {
+    ...payload,
+    signerSettings: normalizeSignerSettings(payload.signerSettings),
+    profile: {
+      ...payload.profile,
+      device: {
+        ...payload.profile.device,
+        name: payload.profile.device.name.trim(),
+        relays: normalizeRelays(payload.profile.device.relays?.length ? payload.profile.device.relays : DEFAULT_RELAYS)
+          .relays
+      }
+    },
+    peerPubkey: payload.peerPubkey?.trim().toLowerCase() || undefined,
+    runtimeSnapshotJson:
+      typeof payload.runtimeSnapshotJson === 'string' && payload.runtimeSnapshotJson.trim().length > 0
+        ? payload.runtimeSnapshotJson
+        : undefined
+  };
+  const { blob, sessionKeyB64 } = await encryptLocalProfileBlobPayload(normalizedPayload, password);
+  const now = Date.now();
+  return {
+    record: {
+      id: normalizedPayload.profile.profileId,
+      label: normalizedPayload.profile.device.name,
+      blob,
+      createdAt: now,
+      updatedAt: now
+    } satisfies LocalProfileBlobRecord,
+    sessionKeyB64,
+    runtimeProfile: toRuntimeProfile(normalizedPayload),
+    payload: normalizedPayload
+  };
+}
+
+async function storeProfileBlobAndUnlock(payload: LocalProfileBlobPayload, password: string) {
+  await rejectDuplicateProfileId(payload.profile.profileId);
+  const created = await createStoredProfileRecord(payload, password);
+  await saveStoredProfileRecord(created.record);
+  await saveUnlockedProfileKey(created.record.id, created.sessionKeyB64);
+  await setActiveProfileId(created.record.id);
+  return created;
+}
+
+async function updateStoredProfileBlob(
+  profileId: string,
+  payload: LocalProfileBlobPayload,
+  sessionKeyB64: string
+) {
+  const existing = await loadStoredProfileRecord(profileId);
+  if (!existing) {
+    throw new Error('Selected profile was not found.');
+  }
+  const blob = await reencryptLocalProfileBlobWithSessionKey(payload, sessionKeyB64, existing.blob);
+  const nextRecord: LocalProfileBlobRecord = {
+    ...existing,
+    label: payload.profile.device.name,
+    blob,
+    updatedAt: Date.now()
+  };
+  await saveStoredProfileRecord(nextRecord);
+  return nextRecord;
+}
+
+async function replaceStoredProfileBlob(input: {
+  targetProfileId: string;
+  nextPayload: LocalProfileBlobPayload;
+  sessionKeyB64: string;
+  existingRecord: LocalProfileBlobRecord;
+  activate: boolean;
+  activationSource: 'apply_rotation_update';
+}) {
+  await rejectDuplicateProfileId(input.nextPayload.profile.profileId);
+  const blob = await reencryptLocalProfileBlobWithSessionKey(
+    input.nextPayload,
+    input.sessionKeyB64,
+    input.existingRecord.blob
+  );
+  const nextRecord: LocalProfileBlobRecord = {
+    id: input.nextPayload.profile.profileId,
+    label: input.nextPayload.profile.device.name,
+    blob,
+    createdAt: input.existingRecord.createdAt,
+    updatedAt: Date.now()
+  };
+  await saveStoredProfileRecord(nextRecord);
+  await saveUnlockedProfileKey(nextRecord.id, input.sessionKeyB64);
+  await deleteStoredProfileRecord(input.targetProfileId);
+  await setActiveProfileId(nextRecord.id);
+
+  const runtimeProfile = toRuntimeProfile(input.nextPayload);
+  if (input.activate) {
+    lastRuntimeStatusCache = { runtime: 'cold', status: null };
+    await ensureRuntimeForBuiltProfile(
+      {
+        profile: runtimeProfile,
+        runtimeProfile,
+        localPayload: input.nextPayload,
+        restored:
+          typeof runtimeProfile.runtimeSnapshotJson === 'string' &&
+          runtimeProfile.runtimeSnapshotJson.trim().length > 0
+      },
+      input.activationSource
+    );
+  }
+
+  return runtimeProfile;
 }
 
 function responseOk(result: unknown) {
@@ -188,15 +437,25 @@ function toStatusSnapshot(state: ExtensionAppState) {
 }
 
 async function buildAppState(): Promise<ExtensionAppState> {
-  const [profile, lifecycle, permissionPolicies] = await Promise.all([
-    loadExtensionProfile(),
+  const [activeProfile, records, activeProfileId, lifecycle, permissionPolicies] = await Promise.all([
+    loadActiveRuntimeProfile(),
+    loadStoredProfileRecords(),
+    loadActiveProfileId(),
     loadLifecycleStatus(),
     loadPermissionPolicies()
   ]);
+  const unlockedProfileIds = new Set(
+    (await Promise.all(records.map(async (record) => ((await loadUnlockedProfileKey(record.id)) ? record.id : null)))).filter(
+      (value): value is string => !!value
+    )
+  );
+  const profile = activeProfile?.runtimeProfile ?? null;
 
   return {
     configured: !!profile,
     profile,
+    profiles: records.map((record) => storedProfileSummaryFromRecord(record, unlockedProfileIds)),
+    activeProfileId,
     lifecycle,
     runtime: {
       phase: lastRuntimeStatusCache.runtime,
@@ -253,6 +512,11 @@ async function hasOffscreenDocument() {
   return contexts.length > 0;
 }
 
+function isSingleOffscreenDocumentError(error: unknown) {
+  const message = toErrorMessage(error).toLowerCase();
+  return message.includes('only a single offscreen document may be created');
+}
+
 async function ensureOffscreenDocument() {
   const chromeApi = getChromeApi();
   if (!chromeApi?.offscreen?.createDocument) {
@@ -262,12 +526,26 @@ async function ensureOffscreenDocument() {
     }).catch(() => undefined);
     throw new Error(failure.message);
   }
-  if (await hasOffscreenDocument()) return;
+  if (await hasOffscreenDocument()) {
+    await updateActivationLifecycle('waiting_offscreen_ready', 'background', 'restoring').catch(
+      () => undefined
+    );
+    try {
+      await waitForOffscreenReady();
+      return;
+    } catch (error) {
+      logger.warn('offscreen', 'stale_document_recreate', {
+        error_message: toErrorMessage(error)
+      });
+      await closeOffscreenDocument().catch(() => undefined);
+    }
+  }
   if (creatingOffscreen) {
     await creatingOffscreen;
     return;
   }
 
+  await updateActivationLifecycle('creating_offscreen', 'background', 'restoring').catch(() => undefined);
   creatingOffscreen = chromeApi.offscreen
     .createDocument({
       url: OFFSCREEN_DOCUMENT_PATH,
@@ -281,11 +559,86 @@ async function ensureOffscreenDocument() {
       });
       offscreenCreatedWithoutContextApi = true;
     })
+    .catch(async (error) => {
+      if (isSingleOffscreenDocumentError(error)) {
+        logger.warn('offscreen', 'document_already_exists_during_create', {
+          error_message: toErrorMessage(error)
+        });
+        offscreenCreatedWithoutContextApi = true;
+        return;
+      }
+      throw error;
+    })
     .finally(() => {
       creatingOffscreen = null;
     });
 
   await creatingOffscreen;
+  await updateActivationLifecycle('waiting_offscreen_ready', 'background', 'restoring').catch(() => undefined);
+  await waitForOffscreenReady();
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sendOffscreenRpc<T>(rpcType: string, payload?: Record<string, unknown>) {
+  const chromeApi = getChromeApi();
+  if (!chromeApi?.runtime?.sendMessage) {
+    throw new Error('Extension runtime messaging is unavailable');
+  }
+
+  const timeoutMs =
+    rpcType === 'runtime.ensure' ||
+    rpcType === 'nostr.execute' ||
+    rpcType === 'runtime.prepare_sign' ||
+    rpcType === 'runtime.prepare_ecdh'
+      ? OFFSCREEN_LONG_RPC_TIMEOUT_MS
+      : OFFSCREEN_DEFAULT_RPC_TIMEOUT_MS;
+
+  const response = (await Promise.race([
+    chromeApi.runtime.sendMessage({
+      type: MESSAGE_TYPE.OFFSCREEN_RPC,
+      rpcType,
+      payload
+    }),
+    sleep(timeoutMs).then(() => {
+      throw new Error(`Timed out waiting for offscreen RPC: ${rpcType}`);
+    })
+  ])) as { ok?: boolean; result?: T; error?: string } | undefined;
+
+  if (!response?.ok) {
+    throw new Error(response?.error || 'Offscreen document did not respond');
+  }
+
+  return response.result as T;
+}
+
+async function waitForOffscreenReady() {
+  if (waitingForOffscreenReady) {
+    await waitingForOffscreenReady;
+    return;
+  }
+
+  waitingForOffscreenReady = Promise.resolve().then(async () => {
+    for (let attempt = 1; attempt <= 30; attempt += 1) {
+      try {
+        await sendOffscreenRpc('offscreen.ping');
+        logger.info('offscreen', 'document_ready', {
+          attempts: attempt
+        });
+        return;
+      } catch (error) {
+        await sleep(100);
+      }
+    }
+
+    throw new Error('Offscreen document did not become ready in time');
+  }).finally(() => {
+    waitingForOffscreenReady = null;
+  });
+
+  await waitingForOffscreenReady;
 }
 
 async function closeOffscreenDocument() {
@@ -294,7 +647,7 @@ async function closeOffscreenDocument() {
   try {
     if (await hasOffscreenDocument()) {
       logger.info('offscreen', 'document_close_requested');
-      const profile = await loadExtensionProfile();
+      const profile = (await loadActiveRuntimeProfile())?.runtimeProfile ?? null;
       const snapshotResult = await callOffscreen<RuntimeSnapshotResult>('runtime.snapshot').catch(
         () => null
       );
@@ -307,10 +660,10 @@ async function closeOffscreenDocument() {
         logger.info('runtime', 'snapshot_persist_before_close', {
           profile_key: profileKey(profile)
         });
-        await savePersistedRuntimeSnapshot(
-          profileKey(profile),
-          JSON.stringify(snapshotResult.snapshot)
-        );
+        await callOffscreen('runtime.persist_snapshot', {
+          profileId: profile.id,
+          snapshotJson: JSON.stringify(snapshotResult.snapshot)
+        }).catch(() => undefined);
       }
     }
     await chromeApi.offscreen.closeDocument();
@@ -318,6 +671,7 @@ async function closeOffscreenDocument() {
     logger.info('offscreen', 'document_closed');
     offscreenCreatedWithoutContextApi = false;
     creatingOffscreen = null;
+    waitingForOffscreenReady = null;
     lastRuntimeStatusCache = { runtime: 'cold', status: null };
   }
 }
@@ -329,43 +683,28 @@ async function callOffscreen<T>(rpcType: string, payload?: Record<string, unknow
   }
 
   await ensureOffscreenDocument();
-  logger.debug('offscreen', 'rpc_begin', { rpc_type: rpcType });
 
-  const response = (await chromeApi.runtime.sendMessage({
-    type: MESSAGE_TYPE.OFFSCREEN_RPC,
-    rpcType,
-    payload
-  })) as { ok?: boolean; result?: T; error?: string } | undefined;
-
-  if (!response?.ok) {
+  try {
+    return await sendOffscreenRpc<T>(rpcType, payload);
+  } catch (error) {
     logger.warn('offscreen', 'rpc_failed', {
       rpc_type: rpcType,
-      error_message: response?.error || 'Offscreen document did not respond'
+      error_message: toErrorMessage(error)
     });
-    throw new Error(response?.error || 'Offscreen document did not respond');
+    throw error;
   }
-
-  logger.debug('offscreen', 'rpc_ok', { rpc_type: rpcType });
-  return response.result as T;
 }
 
 async function buildRuntimeProfile() {
-  const profile = await loadExtensionProfile();
-  if (!profile) return null;
-
-  const storedSnapshotJson = await loadPersistedRuntimeSnapshot(profileKey(profile)).catch(
-    () => null
-  );
-
+  const activeProfile = await loadActiveRuntimeProfile();
+  if (!activeProfile) return null;
   return {
-    profile,
-    runtimeProfile: storedSnapshotJson
-      ? {
-          ...profile,
-          runtimeSnapshotJson: storedSnapshotJson
-        }
-      : profile,
-    restored: !!storedSnapshotJson
+    profile: activeProfile.runtimeProfile,
+    runtimeProfile: activeProfile.runtimeProfile,
+    localPayload: activeProfile.payload,
+    restored:
+      typeof activeProfile.runtimeProfile.runtimeSnapshotJson === 'string' &&
+      activeProfile.runtimeProfile.runtimeSnapshotJson.trim().length > 0
   };
 }
 
@@ -377,14 +716,8 @@ async function ensureConfiguredRuntime(reason: string) {
 
   ensuringConfiguredRuntime = Promise.resolve()
     .then(async () => {
-      await updateActivationLifecycle('ensuring_offscreen', 'background', 'restoring', {
-        reason
-      }).catch(() => undefined);
-      await ensureOffscreenDocument();
-
       const built = await buildRuntimeProfile();
       if (!built) {
-        logger.debug('runtime', 'autostart_skipped', { reason, configured: false });
         await updateActivationLifecycle('idle', 'background', 'cold', {
           reason,
           configured: false
@@ -393,44 +726,7 @@ async function ensureConfiguredRuntime(reason: string) {
         return;
       }
 
-      await callOffscreen('runtime.ensure', {
-        profile: built.runtimeProfile
-      });
-
-      const runtimeStatus = await callOffscreen<{
-        runtime: 'cold' | 'restoring' | 'ready' | 'degraded';
-        status: RuntimeStatusSummary | null;
-      }>('runtime.status').catch(() => ({
-        runtime: 'restoring' as const,
-        status: null
-      }));
-      lastRuntimeStatusCache = {
-        runtime: runtimeStatus.runtime,
-        status: runtimeStatus.status
-      };
-
-      await updateActivationLifecycle(
-        runtimeStatus.runtime === 'ready'
-          ? 'ready'
-          : runtimeStatus.runtime === 'degraded'
-            ? 'degraded'
-            : 'syncing_status',
-        'background',
-        runtimeStatus.runtime,
-        {
-          reason,
-          restoredFromSnapshot: built.restored
-        },
-        {
-          restoredFromSnapshot: built.restored
-        }
-      ).catch(() => undefined);
-
-      logger.info('runtime', 'autostart_ready', {
-        reason,
-        profile_key: profileKey(built.profile),
-        restored: built.restored
-      });
+      await ensureRuntimeForBuiltProfile(built, reason);
       await publishAppStateUpdated();
     })
     .catch((error) => {
@@ -454,15 +750,94 @@ async function ensureConfiguredRuntime(reason: string) {
   await ensuringConfiguredRuntime;
 }
 
+async function ensureRuntimeForBuiltProfile(
+  built: NonNullable<Awaited<ReturnType<typeof buildRuntimeProfile>>>,
+  reason: string
+) {
+  logger.info('runtime', 'ensure_begin', {
+    reason,
+    profile_id: built.profile.id,
+    has_runtime_snapshot_json:
+      typeof built.runtimeProfile.runtimeSnapshotJson === 'string' &&
+      built.runtimeProfile.runtimeSnapshotJson.trim().length > 0,
+    restored: built.restored
+  });
+  await updateActivationLifecycle('ensuring_offscreen', 'background', 'restoring', {
+    reason
+  }).catch(() => undefined);
+  await Promise.race([
+    ensureOffscreenDocument(),
+    sleep(10_000).then(() => {
+      throw new Error('Timed out ensuring offscreen document');
+    })
+  ]);
+
+  await updateActivationLifecycle('calling_offscreen', 'background', 'restoring', {
+    reason
+  }).catch(() => undefined);
+  logger.info('runtime', 'ensure_call_offscreen_begin', {
+    reason,
+    profile_id: built.profile.id,
+    has_runtime_snapshot_json:
+      typeof built.runtimeProfile.runtimeSnapshotJson === 'string' &&
+      built.runtimeProfile.runtimeSnapshotJson.trim().length > 0
+  });
+  await callOffscreen('runtime.ensure', {
+    profile: built.runtimeProfile,
+    profilePayload: built.localPayload?.profile ?? null
+  });
+  logger.info('runtime', 'ensure_call_offscreen_ok', {
+    reason,
+    profile_id: built.profile.id
+  });
+
+  const runtimeStatus = await callOffscreen<{
+    runtime: 'cold' | 'restoring' | 'ready' | 'degraded';
+    status: RuntimeStatusSummary | null;
+  }>('runtime.status').catch(() => ({
+    runtime: 'restoring' as const,
+    status: null
+  }));
+  lastRuntimeStatusCache = {
+    runtime: runtimeStatus.runtime,
+    status: runtimeStatus.status
+  };
+
+  await updateActivationLifecycle(
+    runtimeStatus.runtime === 'ready'
+      ? 'ready'
+      : runtimeStatus.runtime === 'degraded'
+        ? 'degraded'
+        : runtimeStatus.runtime === 'restoring'
+          ? 'restoring_runtime'
+          : 'syncing_status',
+    'background',
+    runtimeStatus.runtime,
+    {
+      reason,
+      restoredFromSnapshot: built.restored
+    },
+    {
+      restoredFromSnapshot: built.restored
+    }
+  ).catch(() => undefined);
+
+  logger.info('runtime', 'autostart_ready', {
+    reason,
+    profile_id: built.profile.id,
+    profile_key: profileKey(built.profile),
+    restored: built.restored
+  });
+}
+
 async function reloadConfiguredRuntime(reason: string) {
-  const profile = await loadExtensionProfile();
+  const profile = (await loadActiveRuntimeProfile())?.runtimeProfile ?? null;
   if (!profile) return;
 
   const status = await callOffscreen<{ runtime: 'cold' | 'restoring' | 'ready' | 'degraded' }>('runtime.status').catch(
     () => ({ runtime: 'cold' as const })
   );
   if (status.runtime === 'cold' || status.runtime === 'restoring') {
-    logger.debug('runtime', 'reload_skipped', { reason, active: false });
     return;
   }
 
@@ -712,7 +1087,7 @@ chromeApi?.runtime?.onMessage?.addListener((message, _sender, sendResponse) => {
 
   if (message.type === MESSAGE_TYPE.GET_RUNTIME_CONFIG) {
     void (async () => {
-      const profile = await loadExtensionProfile();
+      const profile = (await loadActiveRuntimeProfile())?.runtimeProfile ?? null;
       const status =
         lastRuntimeStatusCache.runtime === 'ready' || lastRuntimeStatusCache.runtime === 'degraded'
           ? await callOffscreen<{ runtime: 'cold' | 'restoring' | 'ready' | 'degraded' }>('runtime.status')
@@ -805,18 +1180,13 @@ chromeApi?.runtime?.onMessage?.addListener((message, _sender, sendResponse) => {
       .catch(() => undefined)
       .then(() => publishAppStateUpdated().catch(() => undefined))
       .then(() =>
-        callOffscreen<StoredExtensionProfile>('onboarding.connect', {
+        callOffscreen<PendingOnboardingProfile>('onboarding.connect', {
           input
         })
       )
-      .then(async (profile) => {
-        const normalized = await normalizeProfileInput(profile);
-        await rejectDuplicateProfile(normalized);
-        await mirrorProfileToExtensionStorage(normalized);
-        lastRuntimeStatusCache = { runtime: 'cold', status: null };
-        await publishAppStateUpdated();
-        await ensureConfiguredRuntime('onboarding_complete');
-        sendResponse(responseOk(normalized));
+      .then(async (pendingProfile) => {
+        await rejectDuplicateProfileId(pendingProfile.profilePayload.profileId);
+        sendResponse(responseOk(pendingProfile));
       })
       .catch(async (error) => {
         await updateOnboardingLifecycle(
@@ -838,6 +1208,178 @@ chromeApi?.runtime?.onMessage?.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === MESSAGE_TYPE.COMPLETE_ONBOARDING) {
+    const pendingProfile = isRecord(message.pendingProfile)
+      ? (message.pendingProfile as PendingOnboardingProfile)
+      : null;
+    const label = typeof message.label === 'string' ? message.label.trim() : '';
+    const password = typeof message.password === 'string' ? message.password : '';
+    if (!pendingProfile || !label || !password) {
+      sendResponse(responseError(new Error('Invalid onboarding completion payload')));
+      return true;
+    }
+    void (async () => {
+      const payload: LocalProfileBlobPayload = {
+        version: 1,
+        profile: {
+          ...pendingProfile.profilePayload,
+          device: {
+            ...pendingProfile.profilePayload.device,
+            name: label
+          }
+        },
+        signerSettings: normalizeSignerSettings(pendingProfile.signerSettings),
+        runtimeSnapshotJson: pendingProfile.runtimeSnapshotJson ?? undefined,
+        peerPubkey: pendingProfile.peerPubkey ?? undefined
+      };
+      const created = await storeProfileBlobAndUnlock(payload, password);
+      lastRuntimeStatusCache = { runtime: 'cold', status: null };
+      await ensureRuntimeForBuiltProfile(
+        {
+          profile: created.runtimeProfile,
+          runtimeProfile: created.runtimeProfile,
+          localPayload: created.payload,
+          restored:
+            typeof created.runtimeProfile.runtimeSnapshotJson === 'string' &&
+            created.runtimeProfile.runtimeSnapshotJson.trim().length > 0
+        },
+        'complete_onboarding'
+      );
+      await updateOnboardingLifecycle('idle', 'background', {
+        profileId: created.runtimeProfile.id
+      }).catch(() => undefined);
+      await publishAppStateUpdated();
+      return created.runtimeProfile;
+    })()
+      .then((result) => sendResponse(responseOk(result)))
+      .catch((error) => sendResponse(responseError(error)));
+    return true;
+  }
+
+  if (message.type === MESSAGE_TYPE.COMPLETE_ROTATION_ONBOARDING) {
+    const pendingProfile = isRecord(message.pendingProfile)
+      ? (message.pendingProfile as PendingOnboardingProfile)
+      : null;
+    const targetProfileId =
+      typeof message.targetProfileId === 'string' ? message.targetProfileId.trim().toLowerCase() : '';
+    if (!pendingProfile || !targetProfileId) {
+      sendResponse(responseError(new Error('Invalid rotation onboarding payload')));
+      return true;
+    }
+    void (async () => {
+      const target = await loadProfileForReplacement(targetProfileId, null);
+      if (!target.payload || !target.sessionKeyB64) {
+        throw new Error('Selected profile is locked.');
+      }
+      if (pendingProfile.profilePayload.group.groupPublicKey !== target.payload.profile.group.groupPublicKey) {
+        throw new Error('Rotation package does not match the selected profile group public key.');
+      }
+      if (pendingProfile.profilePayload.profileId === target.payload.profile.profileId) {
+        throw new Error('Rotation package did not produce a new device profile id.');
+      }
+      const nextPayload: LocalProfileBlobPayload = {
+        version: 1,
+        profile: {
+          ...pendingProfile.profilePayload,
+          device: {
+            ...pendingProfile.profilePayload.device,
+            name: target.payload.profile.device.name,
+          }
+        },
+        signerSettings: target.payload.signerSettings,
+        peerPubkey: target.payload.peerPubkey,
+        runtimeSnapshotJson: pendingProfile.runtimeSnapshotJson ?? undefined
+      };
+      const runtimeProfile = await replaceStoredProfileBlob({
+        targetProfileId,
+        nextPayload,
+        sessionKeyB64: target.sessionKeyB64,
+        existingRecord: target.record,
+        activate: (await loadActiveProfileId()) === targetProfileId,
+        activationSource: 'apply_rotation_update'
+      });
+      await publishAppStateUpdated();
+      return runtimeProfile;
+    })()
+      .then((profile) => sendResponse(responseOk(profile)))
+      .catch((error) => sendResponse(responseError(error)));
+    return true;
+  }
+
+  if (message.type === MESSAGE_TYPE.IMPORT_BFPROFILE) {
+    const packageText =
+      typeof message.packageText === 'string' ? message.packageText.trim() : '';
+    const password = typeof message.password === 'string' ? message.password : '';
+    if (!packageText || !password) {
+      sendResponse(responseError(new Error('Invalid bfprofile import payload')));
+      return true;
+    }
+    void (async () => {
+      const imported = await callOffscreen<ImportedProfilePayloadResult>('profile.import_bfprofile_payload', {
+        packageText,
+        password
+      });
+      const payload: LocalProfileBlobPayload = {
+        version: 1,
+        profile: imported.profilePayload,
+        signerSettings: normalizeSignerSettings()
+      };
+      const created = await storeProfileBlobAndUnlock(payload, password);
+      lastRuntimeStatusCache = { runtime: 'cold', status: null };
+      await ensureRuntimeForBuiltProfile(
+        {
+          profile: created.runtimeProfile,
+          runtimeProfile: created.runtimeProfile,
+          localPayload: created.payload,
+          restored: false
+        },
+        'import_bfprofile'
+      );
+      await publishAppStateUpdated();
+      return created.runtimeProfile;
+    })()
+      .then((profile) => sendResponse(responseOk(profile)))
+      .catch((error) => sendResponse(responseError(error)));
+    return true;
+  }
+
+  if (message.type === MESSAGE_TYPE.RECOVER_BFSHARE) {
+    const packageText =
+      typeof message.packageText === 'string' ? message.packageText.trim() : '';
+    const password = typeof message.password === 'string' ? message.password : '';
+    if (!packageText || !password) {
+      sendResponse(responseError(new Error('Invalid bfshare recovery payload')));
+      return true;
+    }
+    void (async () => {
+      const recovered = await callOffscreen<ImportedProfilePayloadResult>('profile.recover_bfshare_payload', {
+        packageText,
+        password
+      });
+      const payload: LocalProfileBlobPayload = {
+        version: 1,
+        profile: recovered.profilePayload,
+        signerSettings: normalizeSignerSettings()
+      };
+      const created = await storeProfileBlobAndUnlock(payload, password);
+      lastRuntimeStatusCache = { runtime: 'cold', status: null };
+      await ensureRuntimeForBuiltProfile(
+        {
+          profile: created.runtimeProfile,
+          runtimeProfile: created.runtimeProfile,
+          localPayload: created.payload,
+          restored: false
+        },
+        'recover_bfshare'
+      );
+      await publishAppStateUpdated();
+      return created.runtimeProfile;
+    })()
+      .then((profile) => sendResponse(responseOk(profile)))
+      .catch((error) => sendResponse(responseError(error)));
+    return true;
+  }
+
   if (message.type === MESSAGE_TYPE.SAVE_PROFILE) {
     const profile = isRecord(message.profile) ? (message.profile as StoredExtensionProfile) : null;
     if (!profile) {
@@ -846,9 +1388,27 @@ chromeApi?.runtime?.onMessage?.addListener((message, _sender, sendResponse) => {
     }
     void (async () => {
       const normalized = await normalizeProfileInput(profile);
-      await mirrorProfileToExtensionStorage(normalized);
+      const active = await loadUnlockedRuntimeProfile(normalized.id);
+      if (!active.payload || !active.sessionKeyB64) {
+        throw new Error('Profile is locked.');
+      }
+      const nextPayload: LocalProfileBlobPayload = {
+        ...active.payload,
+        profile: {
+          ...active.payload.profile,
+          device: {
+            ...active.payload.profile.device,
+            name: normalized.keysetName?.trim() || active.payload.profile.device.name,
+            relays: normalized.relays
+          }
+        },
+        signerSettings: normalizeSignerSettings(normalized.signerSettings),
+        peerPubkey: normalized.peerPubkey ?? active.payload.peerPubkey ?? undefined,
+        runtimeSnapshotJson: normalized.runtimeSnapshotJson ?? active.payload.runtimeSnapshotJson
+      };
+      await updateStoredProfileBlob(normalized.id, nextPayload, active.sessionKeyB64);
       await publishAppStateUpdated();
-      return normalized;
+      return toRuntimeProfile(nextPayload);
     })()
       .then((result) => sendResponse(responseOk(result)))
       .catch((error) => sendResponse(responseError(error)));
@@ -859,9 +1419,93 @@ chromeApi?.runtime?.onMessage?.addListener((message, _sender, sendResponse) => {
     void (async () => {
       await callOffscreen('runtime.stop').catch(() => undefined);
       lastRuntimeStatusCache = { runtime: 'cold', status: null };
-      await clearExtensionProfile();
+      await clearUnlockedProfileKeys();
+      await setActiveProfileId(null);
       await publishAppStateUpdated();
       return true;
+    })()
+      .then((result) => sendResponse(responseOk(result)))
+      .catch((error) => sendResponse(responseError(error)));
+    return true;
+  }
+
+  if (message.type === MESSAGE_TYPE.ACTIVATE_PROFILE) {
+    const profileId = typeof message.profileId === 'string' ? message.profileId.trim().toLowerCase() : '';
+    if (!profileId) {
+      sendResponse(responseError(new Error('Invalid profile id')));
+      return true;
+    }
+    void (async () => {
+      const unlocked = await loadUnlockedRuntimeProfile(profileId);
+      if (!unlocked.runtimeProfile) {
+        throw new Error('Profile is locked.');
+      }
+      lastRuntimeStatusCache = { runtime: 'cold', status: null };
+      await ensureRuntimeForBuiltProfile(
+        {
+          profile: unlocked.runtimeProfile,
+          runtimeProfile: unlocked.runtimeProfile,
+          localPayload: unlocked.payload,
+          restored:
+            typeof unlocked.runtimeProfile.runtimeSnapshotJson === 'string' &&
+            unlocked.runtimeProfile.runtimeSnapshotJson.trim().length > 0
+        },
+          'activate_profile'
+        );
+      await setActiveProfileId(profileId);
+      await publishAppStateUpdated();
+      return unlocked.runtimeProfile;
+    })()
+      .then((result) => sendResponse(responseOk(result)))
+      .catch(async (error) => {
+        const failure = activationFailure('runtime_restore_failed', toErrorMessage(error));
+        lastRuntimeStatusCache = { runtime: 'cold', status: null };
+        await updateActivationLifecycle('failed', 'background', 'cold', {
+          profileId
+        }, {
+          lastError: failure
+        }).catch(() => undefined);
+        await publishAppStateUpdated().catch(() => undefined);
+        sendResponse(responseError(error));
+      });
+    return true;
+  }
+
+  if (message.type === MESSAGE_TYPE.UNLOCK_PROFILE) {
+    const profileId = typeof message.profileId === 'string' ? message.profileId.trim().toLowerCase() : '';
+    const password = typeof message.password === 'string' ? message.password : '';
+    if (!profileId || !password) {
+      sendResponse(responseError(new Error('Invalid profile unlock payload')));
+      return true;
+    }
+    void (async () => {
+      const record = await loadStoredProfileRecord(profileId);
+      if (!record) {
+        throw new Error('Selected profile was not found.');
+      }
+      let unlocked: Awaited<ReturnType<typeof decryptLocalProfileBlobWithPassword>>;
+      try {
+        unlocked = await decryptLocalProfileBlobWithPassword(record.blob, password);
+      } catch {
+        throw new Error('Invalid profile password.');
+      }
+      await saveUnlockedProfileKey(profileId, unlocked.sessionKeyB64);
+      await setActiveProfileId(profileId);
+      const runtimeProfile = toRuntimeProfile(unlocked.payload);
+      lastRuntimeStatusCache = { runtime: 'cold', status: null };
+      await ensureRuntimeForBuiltProfile(
+        {
+          profile: runtimeProfile,
+          runtimeProfile,
+          localPayload: unlocked.payload,
+          restored:
+            typeof runtimeProfile.runtimeSnapshotJson === 'string' &&
+            runtimeProfile.runtimeSnapshotJson.trim().length > 0
+        },
+        'unlock_profile'
+      );
+      await publishAppStateUpdated();
+      return runtimeProfile;
     })()
       .then((result) => sendResponse(responseOk(result)))
       .catch((error) => sendResponse(responseError(error)));

@@ -11,18 +11,24 @@ import {
   type OnboardingLifecycleState,
   type OnboardingStage,
   type ProviderMethod,
-  type StoredExtensionProfile,
   type StoredPeerPolicy,
   type StoredPermissionPolicy
 } from '@/extension/protocol';
+import type { LocalProfileBlobRecord } from '@/lib/profile-blob';
 
-export const PROFILE_STORAGE_KEY = 'igloo.ext.profile';
+export const PROFILES_STORAGE_KEY = 'igloo.ext.profiles';
+export const ACTIVE_PROFILE_ID_STORAGE_KEY = 'igloo.ext.activeProfileId';
 export const PERMISSIONS_STORAGE_KEY = 'igloo.ext.permissions';
-export const RUNTIME_SNAPSHOT_STORAGE_KEY = 'igloo.ext.runtimeSnapshot';
+export const SESSION_UNLOCKS_STORAGE_KEY = 'igloo.ext.sessionUnlocks';
 export const LIFECYCLE_STORAGE_KEY = 'igloo.ext.lifecycle';
 export const LIFECYCLE_HISTORY_STORAGE_KEY = 'igloo.ext.lifecycleHistory';
 export const APP_STATE_STORAGE_KEY = 'igloo.ext.appState';
 const LIFECYCLE_HISTORY_LIMIT = 100;
+type SessionUnlockRecord = {
+  keyB64: string;
+  updatedAt: number;
+};
+const memorySessionUnlocks = new Map<string, SessionUnlockRecord>();
 
 async function storageGet<T>(key: string): Promise<T | undefined> {
   const chromeApi = getChromeApi();
@@ -43,46 +49,117 @@ async function storageRemove(key: string): Promise<void> {
   await chromeApi.storage.local.remove(key);
 }
 
-export async function mirrorProfileToExtensionStorage(profile: StoredExtensionProfile) {
-  await storageSet(PROFILE_STORAGE_KEY, profile);
-}
-
-export function clearMirroredProfileInExtensionStorage() {
-  void storageRemove(PROFILE_STORAGE_KEY);
-}
-
-export function clearRuntimeSnapshotInExtensionStorage() {
-  void storageRemove(RUNTIME_SNAPSHOT_STORAGE_KEY);
-}
-
-export async function loadExtensionProfile() {
-  return (await storageGet<StoredExtensionProfile>(PROFILE_STORAGE_KEY)) ?? null;
-}
-
-export async function loadRuntimeSnapshot(profileKey: string) {
-  const payload = await storageGet<{
-    profileKey?: string;
-    snapshotJson?: string;
-    updatedAt?: number;
-  }>(RUNTIME_SNAPSHOT_STORAGE_KEY);
-
-  if (!payload || payload.profileKey !== profileKey || typeof payload.snapshotJson !== 'string') {
-    return null;
+async function sessionStorageGet<T>(key: string): Promise<T | undefined> {
+  const chromeApi = getChromeApi();
+  const sessionApi = (chromeApi?.storage as { session?: { get?: (key: string) => Promise<Record<string, unknown>> } } | undefined)?.session;
+  if (!sessionApi?.get) {
+    if (key !== SESSION_UNLOCKS_STORAGE_KEY) return undefined;
+    return Object.fromEntries(memorySessionUnlocks.entries()) as T;
   }
-
-  return payload.snapshotJson;
+  const payload = await sessionApi.get(key);
+  return payload[key] as T | undefined;
 }
 
-export async function saveRuntimeSnapshot(profileKey: string, snapshotJson: string) {
-  await storageSet(RUNTIME_SNAPSHOT_STORAGE_KEY, {
-    profileKey,
-    snapshotJson,
+async function sessionStorageSet<T>(key: string, value: T): Promise<void> {
+  const chromeApi = getChromeApi();
+  const sessionApi = (chromeApi?.storage as { session?: { set?: (items: Record<string, unknown>) => Promise<void> } } | undefined)?.session;
+  if (!sessionApi?.set) {
+    if (key === SESSION_UNLOCKS_STORAGE_KEY && value && typeof value === 'object') {
+      memorySessionUnlocks.clear();
+      for (const [profileId, record] of Object.entries(value as Record<string, SessionUnlockRecord>)) {
+        memorySessionUnlocks.set(profileId, record);
+      }
+    }
+    return;
+  }
+  await sessionApi.set({ [key]: value });
+}
+
+async function sessionStorageRemove(key: string): Promise<void> {
+  const chromeApi = getChromeApi();
+  const sessionApi = (chromeApi?.storage as { session?: { remove?: (key: string) => Promise<void> } } | undefined)?.session;
+  if (!sessionApi?.remove) {
+    if (key === SESSION_UNLOCKS_STORAGE_KEY) {
+      memorySessionUnlocks.clear();
+    }
+    return;
+  }
+  await sessionApi.remove(key);
+}
+
+export async function loadStoredProfileRecords() {
+  return (await storageGet<LocalProfileBlobRecord[]>(PROFILES_STORAGE_KEY)) ?? [];
+}
+
+export async function loadStoredProfileRecord(profileId: string) {
+  const records = await loadStoredProfileRecords();
+  return records.find((record) => record.id === profileId) ?? null;
+}
+
+export async function saveStoredProfileRecord(record: LocalProfileBlobRecord) {
+  const records = await loadStoredProfileRecords();
+  const next = [record, ...records.filter((entry) => entry.id !== record.id)];
+  await storageSet(PROFILES_STORAGE_KEY, next);
+}
+
+export async function loadActiveProfileId() {
+  return (await storageGet<string>(ACTIVE_PROFILE_ID_STORAGE_KEY)) ?? null;
+}
+
+export async function setActiveProfileId(profileId: string | null) {
+  if (!profileId) {
+    await storageRemove(ACTIVE_PROFILE_ID_STORAGE_KEY);
+    return;
+  }
+  await storageSet(ACTIVE_PROFILE_ID_STORAGE_KEY, profileId);
+}
+
+export async function deleteStoredProfileRecord(profileId: string) {
+  const records = await loadStoredProfileRecords();
+  const next = records.filter((record) => record.id !== profileId);
+  await storageSet(PROFILES_STORAGE_KEY, next);
+  await clearUnlockedProfileKey(profileId);
+  const activeProfileId = await loadActiveProfileId();
+  if (activeProfileId === profileId) {
+    if (next.length > 0) {
+      await storageSet(ACTIVE_PROFILE_ID_STORAGE_KEY, next[0].id);
+    } else {
+      await storageRemove(ACTIVE_PROFILE_ID_STORAGE_KEY);
+    }
+  }
+}
+
+async function loadSessionUnlocks() {
+  return (await sessionStorageGet<Record<string, SessionUnlockRecord>>(SESSION_UNLOCKS_STORAGE_KEY)) ?? {};
+}
+
+export async function loadUnlockedProfileKey(profileId: string) {
+  const unlocks = await loadSessionUnlocks();
+  return unlocks[profileId]?.keyB64 ?? null;
+}
+
+export async function saveUnlockedProfileKey(profileId: string, keyB64: string) {
+  const unlocks = await loadSessionUnlocks();
+  unlocks[profileId] = {
+    keyB64,
     updatedAt: Date.now()
-  });
+  };
+  await sessionStorageSet(SESSION_UNLOCKS_STORAGE_KEY, unlocks);
 }
 
-export async function clearRuntimeSnapshot() {
-  await storageRemove(RUNTIME_SNAPSHOT_STORAGE_KEY);
+export async function clearUnlockedProfileKey(profileId: string) {
+  const unlocks = await loadSessionUnlocks();
+  if (!(profileId in unlocks)) return;
+  delete unlocks[profileId];
+  if (Object.keys(unlocks).length === 0) {
+    await sessionStorageRemove(SESSION_UNLOCKS_STORAGE_KEY);
+    return;
+  }
+  await sessionStorageSet(SESSION_UNLOCKS_STORAGE_KEY, unlocks);
+}
+
+export async function clearUnlockedProfileKeys() {
+  await sessionStorageRemove(SESSION_UNLOCKS_STORAGE_KEY);
 }
 
 function now() {
@@ -118,6 +195,8 @@ export function defaultExtensionAppState(): ExtensionAppState {
   return {
     configured: false,
     profile: null,
+    profiles: [],
+    activeProfileId: null,
     lifecycle: defaultLifecycleStatusSnapshot(),
     runtime: {
       phase: 'cold',
@@ -263,8 +342,9 @@ export async function removePermissionPolicy(target: StoredPermissionPolicy) {
 }
 
 export async function clearExtensionProfile() {
-  await storageRemove(PROFILE_STORAGE_KEY);
-  await storageRemove(RUNTIME_SNAPSHOT_STORAGE_KEY);
+  await storageRemove(PROFILES_STORAGE_KEY);
+  await storageRemove(ACTIVE_PROFILE_ID_STORAGE_KEY);
+  await clearUnlockedProfileKeys();
   await storageRemove(APP_STATE_STORAGE_KEY);
   await clearLifecycleStatus();
 }

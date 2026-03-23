@@ -1,4 +1,5 @@
 import type { SignerSettings } from '@/lib/signer-settings';
+import type { BrowserProfilePackagePayload } from 'igloo-shared';
 
 export const EXTENSION_SOURCE = 'igloo-chrome';
 export const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
@@ -17,7 +18,13 @@ export const MESSAGE_TYPE = {
   UPDATE_RUNTIME_PEER_POLICY: 'ext.updateRuntimePeerPolicy',
   CLEAR_RUNTIME_PEER_POLICY_OVERRIDES: 'ext.clearRuntimePeerPolicyOverrides',
   START_ONBOARDING: 'ext.startOnboarding',
+  COMPLETE_ONBOARDING: 'ext.completeOnboarding',
+  COMPLETE_ROTATION_ONBOARDING: 'ext.completeRotationOnboarding',
+  IMPORT_BFPROFILE: 'ext.importBfprofile',
+  RECOVER_BFSHARE: 'ext.recoverBfshare',
   SAVE_PROFILE: 'ext.saveProfile',
+  ACTIVATE_PROFILE: 'ext.activateProfile',
+  UNLOCK_PROFILE: 'ext.unlockProfile',
   CLEAR_PROFILE: 'ext.clearProfile',
   RUNTIME_CONTROL: 'ext.runtimeControl',
   RUNTIME_STATUS_UPDATED: 'ext.runtimeStatusUpdated',
@@ -56,6 +63,27 @@ export type StoredExtensionProfile = {
   runtimeSnapshotJson?: string;
 };
 
+export type StoredProfileSummary = {
+  id: string;
+  label: string;
+  createdAt: number;
+  updatedAt: number;
+  unlocked: boolean;
+};
+
+export type PendingOnboardingProfile = {
+  id: string;
+  keysetName?: string;
+  relays: string[];
+  groupPublicKey?: string;
+  sharePublicKey?: string;
+  publicKey?: string;
+  peerPubkey?: string;
+  signerSettings?: SignerSettings;
+  runtimeSnapshotJson?: string;
+  profilePayload: BrowserProfilePackagePayload;
+};
+
 export type LifecycleSource = 'options' | 'background' | 'offscreen';
 
 export type LifecycleFailureCode =
@@ -88,6 +116,9 @@ export type OnboardingStage =
 export type ActivationStage =
   | 'idle'
   | 'ensuring_offscreen'
+  | 'creating_offscreen'
+  | 'waiting_offscreen_ready'
+  | 'calling_offscreen'
   | 'restoring_runtime'
   | 'syncing_status'
   | 'ready'
@@ -264,6 +295,8 @@ export type RuntimeSnapshotDetails = {
 export type ExtensionAppState = {
   configured: boolean;
   profile: StoredExtensionProfile | null;
+  profiles: StoredProfileSummary[];
+  activeProfileId: string | null;
   lifecycle: LifecycleStatusSnapshot;
   runtime: {
     phase: RuntimePhase;

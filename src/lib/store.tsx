@@ -1,16 +1,23 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import { getChromeApi } from '@/extension/chrome';
 import {
+  activateExtensionProfile,
   clearExtensionProfileState,
+  completeOnboarding as completeOnboardingClient,
+  completeRotationOnboarding,
   fetchExtensionAppState,
+  importBfprofile,
+  recoverBfshare,
   saveExtensionProfile,
   sendRuntimeControl,
   startOnboarding,
+  unlockExtensionProfile,
   type StartOnboardingInput
 } from '@/extension/client';
 import {
   MESSAGE_TYPE,
   type ExtensionAppState,
+  type PendingOnboardingProfile,
   type StoredExtensionProfile
 } from '@/extension/protocol';
 
@@ -29,7 +36,20 @@ type AppState = {
   lastOnboardingFailure: OnboardingFailureDetail | null;
   clearOnboardingFailure: () => void;
   saveProfile: (s: StoredExtensionProfile) => Promise<void>;
-  connectOnboarding: (s: StartOnboardingInput) => Promise<void>;
+  connectOnboarding: (s: StartOnboardingInput) => Promise<PendingOnboardingProfile>;
+  completeOnboarding: (
+    pendingProfile: PendingOnboardingProfile,
+    label: string,
+    password: string
+  ) => Promise<StoredExtensionProfile>;
+  completeRotationUpdate: (
+    targetProfileId: string,
+    pendingProfile: PendingOnboardingProfile
+  ) => Promise<StoredExtensionProfile>;
+  importProfile: (packageText: string, password: string) => Promise<StoredExtensionProfile>;
+  recoverProfile: (packageText: string, password: string) => Promise<StoredExtensionProfile>;
+  activateProfile: (profileId: string) => Promise<void>;
+  unlockProfile: (profileId: string, password: string) => Promise<void>;
   logout: () => void;
   wipeAllData: () => Promise<void>;
 };
@@ -140,9 +160,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   async function connectOnboarding(input: StartOnboardingInput) {
     setLastOnboardingFailure(null);
     try {
-      await startOnboarding(input);
-      const next = await fetchExtensionAppState();
-      applyAppState(next);
+      return await startOnboarding(input);
     } catch (error) {
       const next = await fetchExtensionAppState().catch(() => null);
       if (next) {
@@ -152,18 +170,81 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function finalizeOnboarding(
+    pendingProfile: PendingOnboardingProfile,
+    label: string,
+    password: string
+  ) {
+    setLastOnboardingFailure(null);
+    try {
+      const profile = await completeOnboardingClient(pendingProfile, label, password);
+      const next = await fetchExtensionAppState();
+      applyAppState(next);
+      return profile;
+    } catch (error) {
+      const next = await fetchExtensionAppState().catch(() => null);
+      if (next) {
+        applyAppState(next);
+      }
+      throw error;
+    }
+  }
+
+  async function finalizeRotationUpdate(
+    targetProfileId: string,
+    pendingProfile: PendingOnboardingProfile
+  ) {
+    setLastOnboardingFailure(null);
+    const profile = await completeRotationOnboarding({
+      targetProfileId,
+      pendingProfile
+    });
+    const next = await fetchExtensionAppState();
+    applyAppState(next);
+    return profile;
+  }
+
+  async function importProfile(packageText: string, password: string) {
+    setLastOnboardingFailure(null);
+    const profile = await importBfprofile(packageText, password);
+    const next = await fetchExtensionAppState();
+    applyAppState(next);
+    return profile;
+  }
+
+  async function recoverProfile(packageText: string, password: string) {
+    setLastOnboardingFailure(null);
+    const profile = await recoverBfshare(packageText, password);
+    const next = await fetchExtensionAppState();
+    applyAppState(next);
+    return profile;
+  }
+
+  async function activateProfile(profileId: string) {
+    await activateExtensionProfile(profileId);
+    const next = await fetchExtensionAppState();
+    applyAppState(next);
+  }
+
+  async function unlockProfile(profileId: string, password: string) {
+    await unlockExtensionProfile(profileId, password);
+    const next = await fetchExtensionAppState();
+    applyAppState(next);
+  }
+
   function logout() {
     void sendRuntimeControl('stopRuntime').catch(() => undefined);
-    void clearExtensionProfileState().catch(() => undefined);
     setAppState((current) =>
       current
         ? {
             ...current,
             configured: false,
-            profile: null
+            profile: null,
+            activeProfileId: null
           }
         : current
     );
+    void clearExtensionProfileState().catch(() => undefined);
     setLastOnboardingFailure(null);
     setIsHydratingProfile(false);
   }
@@ -198,6 +279,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       clearOnboardingFailure: () => setLastOnboardingFailure(null),
       saveProfile,
       connectOnboarding,
+      completeOnboarding: finalizeOnboarding,
+      completeRotationUpdate: finalizeRotationUpdate,
+      importProfile,
+      recoverProfile,
+      activateProfile,
+      unlockProfile,
       logout,
       wipeAllData
     }),

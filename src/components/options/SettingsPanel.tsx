@@ -1,25 +1,28 @@
 import * as React from 'react';
-import { OperatorSettingsPanel } from 'igloo-ui';
+import { ContentCard, Input, OperatorSettingsPanel, Textarea, Button } from 'igloo-ui';
 import {
+  completeRotationOnboarding,
   fetchExtensionStatus,
   fetchRuntimeConfig,
+  startOnboarding,
   sendRuntimeControl,
   updateRuntimeConfig
 } from '@/extension/client';
+import type { PendingOnboardingProfile, StoredExtensionProfile } from '@/extension/protocol';
 import { DEFAULT_RELAYS, normalizeRelays } from '@/lib/igloo';
-import { type StoredProfile } from '@/lib/storage';
 import {
   normalizeSignerSettings,
   type SignerSettings
 } from '@/lib/signer-settings';
 
 type SettingsPanelProps = {
-  profile?: StoredProfile;
-  saveProfile: (profile: StoredProfile) => Promise<void>;
+  profile?: StoredExtensionProfile;
+  saveProfile: (profile: StoredExtensionProfile) => Promise<void>;
+  logout: () => void;
   wipeAllData: () => Promise<void>;
 };
 
-export function SettingsPanel({ profile, saveProfile, wipeAllData }: SettingsPanelProps) {
+export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: SettingsPanelProps) {
   const [message, setMessage] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [signerName, setSignerName] = React.useState(profile?.keysetName ?? '');
@@ -28,6 +31,10 @@ export function SettingsPanel({ profile, saveProfile, wipeAllData }: SettingsPan
   const [settings, setSettings] = React.useState<SignerSettings>(
     normalizeSignerSettings(profile?.signerSettings)
   );
+  const [rotatePackage, setRotatePackage] = React.useState('');
+  const [rotatePassword, setRotatePassword] = React.useState('');
+  const [pendingRotation, setPendingRotation] = React.useState<PendingOnboardingProfile | null>(null);
+  const [rotating, setRotating] = React.useState(false);
 
   const runAction = React.useCallback(async (action: () => Promise<void> | void, success: string) => {
     try {
@@ -96,7 +103,7 @@ export function SettingsPanel({ profile, saveProfile, wipeAllData }: SettingsPan
         throw new Error(errors[0]);
       }
 
-      const nextProfile: StoredProfile = {
+      const nextProfile: StoredExtensionProfile = {
         ...profile,
         keysetName: signerName.trim() || undefined,
         relays: normalizedRelayList,
@@ -127,6 +134,50 @@ export function SettingsPanel({ profile, saveProfile, wipeAllData }: SettingsPan
     }
   };
 
+  const handleConnectRotation = async () => {
+    if (!profile) return;
+    setRotating(true);
+    setMessage(null);
+    try {
+      const pending = await startOnboarding({
+        onboardPackage: rotatePackage.trim(),
+        onboardPassword: rotatePassword,
+      });
+      if (pending.profilePayload.group.groupPublicKey !== profile.groupPublicKey) {
+        throw new Error('Rotation package does not match the active profile group public key.');
+      }
+      if (pending.profilePayload.profileId === profile.id) {
+        throw new Error('Rotation package did not produce a new device profile id.');
+      }
+      setPendingRotation(pending);
+      setMessage('Rotation package connected. Review and confirm the replacement.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRotating(false);
+    }
+  };
+
+  const handleConfirmRotation = async () => {
+    if (!profile || !pendingRotation) return;
+    setRotating(true);
+    setMessage(null);
+    try {
+      await completeRotationOnboarding({
+        targetProfileId: profile.id,
+        pendingProfile: pendingRotation,
+      });
+      setPendingRotation(null);
+      setRotatePackage('');
+      setRotatePassword('');
+      setMessage('Device key rotated and profile replaced');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRotating(false);
+    }
+  };
+
   return (
     <OperatorSettingsPanel
       hasProfile={Boolean(profile)}
@@ -150,12 +201,89 @@ export function SettingsPanel({ profile, saveProfile, wipeAllData }: SettingsPan
       message={message}
       maintenanceActions={[
         {
+          label: 'Log Out',
+          variant: 'secondary',
+          disabled: !profile,
+          onClick: () => void runAction(() => logout(), 'Logged out of active profile'),
+        },
+        {
           label: 'Wipe All Data',
           variant: 'destructive',
           disabled: !profile,
           onClick: () => void runAction(() => wipeAllData(), 'All signer data wiped'),
         },
       ]}
+      extraSections={
+        profile ? (
+          <ContentCard
+            title="Rotate Key"
+            description="Apply a rotated bfonboard package to replace this device share while preserving the same keyset."
+          >
+            <div className="space-y-4">
+              {!pendingRotation ? (
+                <>
+                  <label className="block">
+                    <div className="text-xs uppercase tracking-wide text-gray-500">bfonboard</div>
+                    <Textarea
+                      className="mt-2 min-h-[120px] text-sm font-mono"
+                      placeholder="bfonboard1..."
+                      value={rotatePackage}
+                      onChange={(event) => setRotatePackage(event.target.value)}
+                    />
+                  </label>
+                  <label className="block">
+                    <div className="text-xs uppercase tracking-wide text-gray-500">Package Password</div>
+                    <Input
+                      className="mt-2"
+                      type="password"
+                      value={rotatePassword}
+                      onChange={(event) => setRotatePassword(event.target.value)}
+                    />
+                  </label>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!rotatePackage.trim() || rotatePassword.trim().length < 8 || rotating}
+                      onClick={() => void handleConnectRotation()}
+                    >
+                      {rotating ? 'Connecting…' : 'Connect Rotation Package'}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="rounded border border-cyan-900/30 bg-cyan-950/20 px-3 py-3 text-sm text-cyan-100">
+                    Same keyset, fresh device share. Confirm to replace the active device profile with the rotated share.
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded border border-blue-900/20 bg-gray-950/30 p-3">
+                      <div className="text-xs uppercase tracking-wide text-gray-500">Profile Label</div>
+                      <div className="mt-1 text-sm text-blue-100">{profile.keysetName ?? 'Device'}</div>
+                    </div>
+                    <div className="rounded border border-blue-900/20 bg-gray-950/30 p-3">
+                      <div className="text-xs uppercase tracking-wide text-gray-500">Group Public Key</div>
+                      <div className="mt-1 truncate text-sm text-blue-100">{pendingRotation.profilePayload.group.groupPublicKey}</div>
+                    </div>
+                    <div className="rounded border border-blue-900/20 bg-gray-950/30 p-3">
+                      <div className="text-xs uppercase tracking-wide text-gray-500">New Profile Id</div>
+                      <div className="mt-1 truncate text-sm text-blue-100">{pendingRotation.profilePayload.profileId}</div>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="secondary" size="sm" onClick={() => setPendingRotation(null)} disabled={rotating}>
+                      Cancel
+                    </Button>
+                    <Button type="button" size="sm" onClick={() => void handleConfirmRotation()} disabled={rotating}>
+                      {rotating ? 'Replacing…' : 'Replace Active Device'}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </ContentCard>
+        ) : null
+      }
     />
   );
 }

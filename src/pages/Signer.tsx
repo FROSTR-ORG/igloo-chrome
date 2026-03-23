@@ -11,6 +11,7 @@ import {
 import { getChromeApi } from '@/extension/chrome';
 import { MESSAGE_TYPE, type StoredPeerPolicy } from '@/extension/protocol';
 import { useStore } from '@/lib/store';
+import { deriveRuntimePresentation } from '@/lib/runtime-activation';
 import {
   fetchExtensionStatus,
   fetchRuntimeDiagnostics,
@@ -22,23 +23,29 @@ import { createLogger, type ObservabilityEvent } from '@/lib/observability';
 const logger = createLogger('igloo.signer-page');
 
 function initializePeers(savedPolicies: StoredPeerPolicy[] = []): PeerPolicy[] {
-  return savedPolicies.map((saved, index) => ({
-    alias: `Peer ${index + 1}`,
-    pubkey: saved.pubkey,
-    send:
-      saved.effectivePolicy.request.ping &&
-      saved.effectivePolicy.request.onboard &&
-      saved.effectivePolicy.request.sign &&
-      saved.effectivePolicy.request.ecdh,
-    receive:
-      saved.effectivePolicy.respond.ping &&
-      saved.effectivePolicy.respond.onboard &&
-      saved.effectivePolicy.respond.sign &&
-      saved.effectivePolicy.respond.ecdh,
-    state: 'offline',
-    statusLabel: 'offline',
-    lastSeen: null,
-  }));
+  return savedPolicies.flatMap((saved, index) => {
+    const effectivePolicy = saved?.effectivePolicy;
+    if (!saved?.pubkey || !effectivePolicy?.request || !effectivePolicy?.respond) {
+      return [];
+    }
+    return [{
+      alias: `Peer ${index + 1}`,
+      pubkey: saved.pubkey,
+      send:
+        effectivePolicy.request.ping &&
+        effectivePolicy.request.onboard &&
+        effectivePolicy.request.sign &&
+        effectivePolicy.request.ecdh,
+      receive:
+        effectivePolicy.respond.ping &&
+        effectivePolicy.respond.onboard &&
+        effectivePolicy.respond.sign &&
+        effectivePolicy.respond.ecdh,
+      state: 'offline',
+      statusLabel: 'offline',
+      lastSeen: null,
+    }];
+  });
 }
 
 function toLogEntry(event: ObservabilityEvent): LogEntry {
@@ -55,6 +62,9 @@ function derivePeers(status: ExtensionStatusSnapshot, savedPolicies: StoredPeerP
   const base = new Map<string, PeerPolicy>();
 
   for (const [index, saved] of savedPolicies.entries()) {
+    if (!saved?.pubkey || !saved.effectivePolicy?.request || !saved.effectivePolicy?.respond) {
+      continue;
+    }
     base.set(saved.pubkey.toLowerCase(), {
       alias: `Peer ${index + 1}`,
       pubkey: saved.pubkey.toLowerCase(),
@@ -110,7 +120,7 @@ function derivePeers(status: ExtensionStatusSnapshot, savedPolicies: StoredPeerP
 }
 
 export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
-  const { appState, profile, logout } = useStore();
+  const { appState, profile } = useStore();
   const [copiedField, setCopiedField] = React.useState<'group' | 'share' | null>(null);
   const [peers, setPeers] = React.useState<PeerPolicy[]>(
     () => initializePeers(appState?.runtime.summary?.peer_permission_states)
@@ -129,16 +139,13 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
       ]);
 
       setStatus(nextStatus);
-      setRuntimeStatus(
-        nextStatus.lifecycle.activation.stage === 'ensuring_offscreen' ||
-          nextStatus.lifecycle.activation.stage === 'restoring_runtime' ||
-          nextStatus.lifecycle.activation.stage === 'syncing_status'
-          ? 'connecting'
-          : nextStatus.runtime === 'ready' || nextStatus.runtime === 'degraded'
-            ? 'running'
-            : 'stopped',
+      const presentation = deriveRuntimePresentation(
+        nextStatus.lifecycle.activation.stage,
+        nextStatus.runtime,
+        nextStatus.lifecycle.activation.lastError?.message ?? nextStatus.runtimeDetails.snapshotError ?? null,
       );
-      setRuntimeError(nextStatus.lifecycle.activation.lastError?.message ?? nextStatus.runtimeDetails.snapshotError ?? null);
+      setRuntimeStatus(presentation.runtimeState);
+      setRuntimeError(presentation.runtimeError);
       setPeers(derivePeers(nextStatus, nextStatus.runtimeDetails.summary?.peer_permission_states ?? []));
       setLogs(diagnostics.diagnostics.map(toLogEntry));
     } catch (error) {
@@ -233,32 +240,20 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
   const isSignerRunning = runtimeStatus === 'running';
   const isConnecting = runtimeStatus === 'connecting';
   const activationStage = status?.lifecycle.activation.stage ?? 'idle';
-  const runtimeControlLabel =
-    activationStage === 'failed'
-      ? 'Retry Runtime'
-      : isSignerRunning
-        ? 'Stop Signer'
-        : isConnecting
-          ? 'Starting...'
-          : 'Start Signer';
-  const runtimeSummaryLabel =
-    activationStage === 'ensuring_offscreen'
-      ? 'Ensuring offscreen runtime'
-      : activationStage === 'restoring_runtime' || activationStage === 'syncing_status'
-        ? 'Restoring runtime'
-        : activationStage === 'failed'
-          ? 'Runtime failed'
-          : isSignerRunning
-            ? 'Signer Running'
-            : 'Signer Stopped';
+  const presentation = deriveRuntimePresentation(
+    activationStage,
+    status?.runtime ?? 'cold',
+    runtimeError,
+  );
+  const runtimeControlLabel = presentation.runtimeControlLabel;
+  const runtimeSummaryLabel = presentation.runtimeSummaryLabel;
+  const displayRuntimeError = presentation.runtimeError;
 
   if (!profile) {
     const emptyState = (
-      <ContentCard title="No onboarding profile" description="Complete onboarding to configure this signer.">
-        <div className="border border-blue-800/30 rounded-lg p-6">
-          <Button variant="ghost" onClick={logout}>
-            Go to onboarding
-          </Button>
+      <ContentCard title="Profile Locked" description="Unlock a stored profile or load a different device to continue.">
+        <div className="border border-blue-800/30 rounded-lg p-6 text-sm text-blue-200">
+          No active unlocked profile is currently loaded in this browser session.
         </div>
       </ContentCard>
     );
@@ -279,7 +274,7 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
       runtimeSummaryLabel={runtimeSummaryLabel}
       activationStage={status?.lifecycle.activation.stage ?? null}
       activationUpdatedAt={status?.lifecycle.activation.updatedAt ?? null}
-      runtimeError={runtimeError}
+      runtimeError={displayRuntimeError}
       sharePublicKey={status?.sharePublicKey ?? profile.sharePublicKey ?? ''}
       groupPublicKey={status?.publicKey ?? profile.groupPublicKey ?? ''}
       copiedField={copiedField}

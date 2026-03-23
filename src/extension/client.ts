@@ -16,7 +16,8 @@ import {
   type RuntimeSnapshotDetails,
   type RuntimeStatusDetails,
   type RuntimeStatusSummary,
-  type StoredExtensionProfile
+  type StoredExtensionProfile,
+  type PendingOnboardingProfile
 } from '@/extension/protocol';
 import type { ObservabilityEvent } from '@/lib/observability';
 import type { SignerSettings } from '@/lib/signer-settings';
@@ -52,7 +53,6 @@ export type RuntimeDiagnosticsSnapshot = {
 };
 
 export type StartOnboardingInput = {
-  keysetName?: string;
   onboardPackage: string;
   onboardPassword: string;
 };
@@ -130,11 +130,57 @@ export async function clearRuntimePeerPolicyOverrides(): Promise<StoredPeerPolic
 
 export async function startOnboarding(
   input: StartOnboardingInput
-): Promise<StoredExtensionProfile> {
-  return await sendMessage<StoredExtensionProfile>({
+): Promise<PendingOnboardingProfile> {
+  return await sendMessage<PendingOnboardingProfile>({
     type: MESSAGE_TYPE.START_ONBOARDING,
     input
   }, 'Failed to start onboarding');
+}
+
+export async function completeOnboarding(
+  pendingProfile: PendingOnboardingProfile,
+  label: string,
+  password: string
+): Promise<StoredExtensionProfile> {
+  return await sendMessage<StoredExtensionProfile>({
+    type: MESSAGE_TYPE.COMPLETE_ONBOARDING,
+    pendingProfile,
+    label,
+    password
+  }, 'Failed to complete onboarding');
+}
+
+export async function completeRotationOnboarding(input: {
+  targetProfileId: string;
+  pendingProfile: PendingOnboardingProfile;
+}): Promise<StoredExtensionProfile> {
+  return await sendMessage<StoredExtensionProfile>({
+    type: MESSAGE_TYPE.COMPLETE_ROTATION_ONBOARDING,
+    targetProfileId: input.targetProfileId,
+    pendingProfile: input.pendingProfile
+  }, 'Failed to rotate key');
+}
+
+export async function importBfprofile(
+  packageText: string,
+  password: string
+): Promise<StoredExtensionProfile> {
+  return await sendMessage<StoredExtensionProfile>({
+    type: MESSAGE_TYPE.IMPORT_BFPROFILE,
+    packageText,
+    password
+  }, 'Failed to import bfprofile');
+}
+
+export async function recoverBfshare(
+  packageText: string,
+  password: string
+): Promise<StoredExtensionProfile> {
+  return await sendMessage<StoredExtensionProfile>({
+    type: MESSAGE_TYPE.RECOVER_BFSHARE,
+    packageText,
+    password
+  }, 'Failed to recover bfshare');
 }
 
 export async function saveExtensionProfile(
@@ -144,6 +190,26 @@ export async function saveExtensionProfile(
     type: MESSAGE_TYPE.SAVE_PROFILE,
     profile
   }, 'Failed to save extension profile');
+}
+
+export async function activateExtensionProfile(
+  profileId: string
+): Promise<StoredExtensionProfile> {
+  return await sendMessage<StoredExtensionProfile>({
+    type: MESSAGE_TYPE.ACTIVATE_PROFILE,
+    profileId
+  }, 'Failed to activate extension profile');
+}
+
+export async function unlockExtensionProfile(
+  profileId: string,
+  password: string
+): Promise<StoredExtensionProfile> {
+  return await sendMessage<StoredExtensionProfile>({
+    type: MESSAGE_TYPE.UNLOCK_PROFILE,
+    profileId,
+    password
+  }, 'Failed to unlock extension profile');
 }
 
 export async function clearExtensionProfileState(): Promise<void> {

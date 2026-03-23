@@ -57,6 +57,8 @@ export function decode_bfshare_package(package_text: string, password: string): 
 
 export function decrypt_profile_backup_content(ciphertext: string, share_secret: string): string;
 
+export function derive_group_id(group_json: string): string;
+
 export function derive_profile_backup_conversation_key_hex(share_secret: string): string;
 
 export function derive_profile_id_from_share_pubkey(share_pubkey: string): string;
@@ -77,6 +79,8 @@ export function profile_backup_event_kind(): number;
 
 export function profile_backup_key_domain(): string;
 
+export function rotate_keyset_bundle(input_json: string): string;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -96,6 +100,7 @@ export interface InitOutput {
     readonly decode_bfprofile_package: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly decode_bfshare_package: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly decrypt_profile_backup_content: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly derive_group_id: (a: number, b: number) => [number, number, number, number];
     readonly derive_profile_backup_conversation_key_hex: (a: number, b: number) => [number, number, number, number];
     readonly derive_profile_id_from_share_pubkey: (a: number, b: number) => [number, number, number, number];
     readonly derive_profile_id_from_share_secret: (a: number, b: number) => [number, number, number, number];
@@ -106,6 +111,7 @@ export interface InitOutput {
     readonly parse_profile_backup_event: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly profile_backup_event_kind: () => number;
     readonly profile_backup_key_domain: () => [number, number];
+    readonly rotate_keyset_bundle: (a: number, b: number) => [number, number, number, number];
     readonly wasmbridgeruntime_clear_policy_overrides: (a: number) => [number, number];
     readonly wasmbridgeruntime_drain_completions: (a: number) => [number, number, number, number];
     readonly wasmbridgeruntime_drain_failures: (a: number) => [number, number, number, number];

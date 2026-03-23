@@ -36,7 +36,7 @@ const tabs: Array<{
 ];
 
 export default function DashboardPage() {
-  const { profile, saveProfile, wipeAllData } = useStore();
+  const { profile, saveProfile, wipeAllData, logout } = useStore();
   const [activeTab, setActiveTab] = React.useState<DashboardTab>('signer');
   const profileTag = profile?.id ? `${profile.keysetName ?? 'device'} (${shortProfileId(profile.id)})` : null;
 
@@ -76,7 +76,12 @@ export default function DashboardPage() {
       )}
       {activeTab === 'settings' && (
         <div role="tabpanel" id="operator-panel-settings" aria-labelledby="operator-tab-settings">
-          <SettingsPanel profile={profile} saveProfile={saveProfile} wipeAllData={wipeAllData} />
+          <SettingsPanel
+            profile={profile}
+            saveProfile={saveProfile}
+            logout={logout}
+            wipeAllData={wipeAllData}
+          />
         </div>
       )}
     </PageLayout>
