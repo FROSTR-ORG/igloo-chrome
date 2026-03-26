@@ -360,6 +360,7 @@ describe('igloo-chrome StoreProvider', () => {
       profilePayload: {
         profileId: '55'.repeat(32),
         version: 1,
+        keysetName: 'Onboarded Chrome signer',
         device: {
           name: 'Onboarded Chrome signer',
           shareSecret: '88'.repeat(32),
@@ -367,11 +368,9 @@ describe('igloo-chrome StoreProvider', () => {
           remotePeerPolicyObservations: [],
           relays: ['ws://relay.example']
         },
-        group: {
-          keysetName: 'Onboarded Chrome signer',
-          groupPublicKey: '66'.repeat(32),
+        groupPackage: {
+          groupPk: '66'.repeat(32),
           threshold: 2,
-          totalCount: 3,
           members: []
         }
       }

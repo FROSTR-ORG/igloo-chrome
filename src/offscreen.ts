@@ -32,6 +32,8 @@ import {
   getRuntimeConfigFromNode,
   getRuntimeSnapshot,
   getRuntimeStatus,
+  groupPackageToWireJson,
+  groupPublicKeyFromPackage,
   nip44DecryptWithNode,
   nip44EncryptWithNode,
   prepareEcdhOnNode,
@@ -44,7 +46,8 @@ import {
   wipeRuntimeStateOnNode,
   type BrowserProfilePackagePayload,
   type NodeWithEvents,
-  type RuntimeStatusSummary
+  type RuntimeStatusSummary,
+  xOnlyFromCompressedPubkey
 } from '@/lib/igloo';
 import {
   createLogger,
@@ -135,28 +138,17 @@ function normalizeGroupMemberSharePublicKey(value: string) {
 }
 
 function groupJsonFromPayload(payload: BrowserProfilePackagePayload) {
-  return JSON.stringify(
-    {
-      group_pk: payload.group.groupPublicKey,
-      threshold: payload.group.threshold,
-      members: payload.group.members.map((member) => ({
-        idx: member.index,
-        pubkey: `02${member.sharePublicKey}`,
-      })),
-    },
-    null,
-    2
-  );
+  return groupPackageToWireJson(payload.groupPackage);
 }
 
 function shareJsonFromPayload(payload: BrowserProfilePackagePayload) {
   const sharePublicKey = publicKeyFromSecret(payload.device.shareSecret);
   const member =
-    payload.group.members.find((candidate) => candidate.sharePublicKey === sharePublicKey) ??
-    payload.group.members[0];
+    payload.groupPackage.members.find((candidate) => xOnlyFromCompressedPubkey(candidate.pubkey) === sharePublicKey) ??
+    payload.groupPackage.members[0];
   return JSON.stringify(
     {
-      idx: member?.index ?? 1,
+      idx: member?.idx ?? 1,
       seckey: payload.device.shareSecret,
     },
     null,
@@ -185,8 +177,14 @@ async function runtimePayloadFromSnapshot(args: {
   const share = snapshot.bootstrap?.share;
   const members =
     group?.members?.map((member) => ({
-      index: Math.trunc(member.idx ?? 0),
-      sharePublicKey: normalizeGroupMemberSharePublicKey(member.pubkey ?? ''),
+      idx: Math.trunc(member.idx ?? 0),
+      pubkey: (() => {
+        const normalized = (member.pubkey ?? '').trim().toLowerCase();
+        if (/^(02|03)[0-9a-f]{64}$/.test(normalized)) {
+          return normalized;
+        }
+        return `02${normalizeGroupMemberSharePublicKey(member.pubkey ?? '')}`;
+      })(),
     })) ?? [];
   const shareSecret = normalizeHex32(share?.seckey ?? '', 'share secret');
   const sharePublicKey = publicKeyFromSecret(shareSecret);
@@ -198,9 +196,9 @@ async function runtimePayloadFromSnapshot(args: {
       name: args.label.trim() || 'Onboarded device',
       shareSecret,
       manualPeerPolicyOverrides: members
-        .filter((member) => member.sharePublicKey !== sharePublicKey)
+        .filter((member) => xOnlyFromCompressedPubkey(member.pubkey) !== sharePublicKey)
         .map((member) => ({
-          pubkey: member.sharePublicKey,
+          pubkey: xOnlyFromCompressedPubkey(member.pubkey),
           policy: {
             request: { echo: 'unset', ping: 'unset', onboard: 'unset', sign: 'unset', ecdh: 'unset' },
             respond: { echo: 'unset', ping: 'unset', onboard: 'unset', sign: 'unset', ecdh: 'unset' },
@@ -209,11 +207,10 @@ async function runtimePayloadFromSnapshot(args: {
       remotePeerPolicyObservations: [],
       relays: args.relays,
     },
-    group: {
-      keysetName: args.label.trim() || 'Onboarded device',
-      groupPublicKey: normalizeHex32(group?.group_pk ?? '', 'group public key'),
+    keysetName: args.label.trim() || 'Onboarded device',
+    groupPackage: {
+      groupPk: normalizeHex32(group?.group_pk ?? '', 'group public key'),
       threshold: Math.trunc(group?.threshold ?? 0),
-      totalCount: members.length,
       members,
     },
   } satisfies BrowserProfilePackagePayload;
@@ -241,10 +238,10 @@ async function loadUnlockedProfileById(profileId: string, timeoutMs = PROFILE_ST
       const payload = await decryptLocalProfileBlobWithSessionKey(record.blob, sessionKeyB64);
       const profile: StoredExtensionProfile = {
         id: payload.profile.profileId,
-        keysetName: payload.profile.device.name,
+        keysetName: payload.profile.keysetName,
         relays: payload.profile.device.relays,
-        groupPublicKey: payload.profile.group.groupPublicKey,
-        publicKey: payload.profile.group.groupPublicKey,
+        groupPublicKey: groupPublicKeyFromPackage(payload.profile.groupPackage),
+        publicKey: groupPublicKeyFromPackage(payload.profile.groupPackage),
         sharePublicKey: publicKeyFromSecret(payload.profile.device.shareSecret),
         peerPubkey: payload.peerPubkey ?? undefined,
         signerSettings: normalizeSignerSettings(payload.signerSettings),
@@ -931,10 +928,10 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
       const sharePublicKey = publicKeyFromSecret(decoded.device.shareSecret);
       const profile: StoredExtensionProfile = {
         id: decoded.profileId,
-        keysetName: decoded.device.name,
+        keysetName: decoded.keysetName,
         relays: decoded.device.relays,
-        groupPublicKey: decoded.group.groupPublicKey,
-        publicKey: decoded.group.groupPublicKey,
+        groupPublicKey: groupPublicKeyFromPackage(decoded.groupPackage),
+        publicKey: groupPublicKeyFromPackage(decoded.groupPackage),
         sharePublicKey,
         signerSettings: normalizeSignerSettings(),
       };
@@ -965,10 +962,10 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
       const sharePublicKey = publicKeyFromSecret(recovered.share.shareSecret);
       const profile: StoredExtensionProfile = {
         id: recovered.profile.profileId,
-        keysetName: recovered.profile.device.name,
+        keysetName: recovered.profile.keysetName,
         relays: recovered.profile.device.relays,
-        groupPublicKey: recovered.profile.group.groupPublicKey,
-        publicKey: recovered.profile.group.groupPublicKey,
+        groupPublicKey: groupPublicKeyFromPackage(recovered.profile.groupPackage),
+        publicKey: groupPublicKeyFromPackage(recovered.profile.groupPackage),
         sharePublicKey,
         signerSettings: normalizeSignerSettings(),
       };

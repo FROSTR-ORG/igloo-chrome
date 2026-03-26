@@ -9,7 +9,7 @@ import {
   updateRuntimeConfig
 } from '@/extension/client';
 import type { PendingOnboardingProfile, StoredExtensionProfile } from '@/extension/protocol';
-import { DEFAULT_RELAYS, normalizeRelays } from '@/lib/igloo';
+import { DEFAULT_RELAYS, groupPublicKeyFromPackage, normalizeRelays } from '@/lib/igloo';
 import {
   normalizeSignerSettings,
   type SignerSettings
@@ -143,7 +143,7 @@ export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: Set
         onboardPackage: rotatePackage.trim(),
         onboardPassword: rotatePassword,
       });
-      if (pending.profilePayload.group.groupPublicKey !== profile.groupPublicKey) {
+      if (groupPublicKeyFromPackage(pending.profilePayload.groupPackage) !== profile.groupPublicKey) {
         throw new Error('Rotation package does not match the active profile group public key.');
       }
       if (pending.profilePayload.profileId === profile.id) {
@@ -263,7 +263,7 @@ export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: Set
                     </div>
                     <div className="rounded border border-blue-900/20 bg-gray-950/30 p-3">
                       <div className="text-xs uppercase tracking-wide text-gray-500">Group Public Key</div>
-                      <div className="mt-1 truncate text-sm text-blue-100">{pendingRotation.profilePayload.group.groupPublicKey}</div>
+                      <div className="mt-1 truncate text-sm text-blue-100">{groupPublicKeyFromPackage(pendingRotation.profilePayload.groupPackage)}</div>
                     </div>
                     <div className="rounded border border-blue-900/20 bg-gray-950/30 p-3">
                       <div className="text-xs uppercase tracking-wide text-gray-500">New Profile Id</div>

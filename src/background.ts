@@ -49,6 +49,7 @@ import { normalizeSignerSettings } from '@/lib/signer-settings';
 import type { LifecycleFailure } from '@/extension/protocol';
 import {
   DEFAULT_RELAYS,
+  groupPublicKeyFromPackage,
   normalizeRelays,
 } from '@/lib/igloo';
 import {
@@ -197,10 +198,10 @@ function toRuntimeProfile(payload: LocalProfileBlobPayload): StoredExtensionProf
   const sharePublicKey = publicKeyFromSecret(payload.profile.device.shareSecret);
   return {
     id: payload.profile.profileId,
-    keysetName: payload.profile.device.name?.trim() || undefined,
+    keysetName: payload.profile.keysetName?.trim() || undefined,
     relays,
-    groupPublicKey: payload.profile.group.groupPublicKey.trim().toLowerCase(),
-    publicKey: payload.profile.group.groupPublicKey.trim().toLowerCase(),
+    groupPublicKey: groupPublicKeyFromPackage(payload.profile.groupPackage),
+    publicKey: groupPublicKeyFromPackage(payload.profile.groupPackage),
     sharePublicKey,
     peerPubkey: payload.peerPubkey?.trim().toLowerCase() || undefined,
     signerSettings: normalizeSignerSettings(payload.signerSettings),
@@ -1271,7 +1272,10 @@ chromeApi?.runtime?.onMessage?.addListener((message, _sender, sendResponse) => {
       if (!target.payload || !target.sessionKeyB64) {
         throw new Error('Selected profile is locked.');
       }
-      if (pendingProfile.profilePayload.group.groupPublicKey !== target.payload.profile.group.groupPublicKey) {
+      if (
+        groupPublicKeyFromPackage(pendingProfile.profilePayload.groupPackage) !==
+        groupPublicKeyFromPackage(target.payload.profile.groupPackage)
+      ) {
         throw new Error('Rotation package does not match the selected profile group public key.');
       }
       if (pendingProfile.profilePayload.profileId === target.payload.profile.profileId) {
