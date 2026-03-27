@@ -17,7 +17,7 @@ The format is based on Keep a Changelog, adapted for this repository.
 - Successful onboarding consumes the package immediately, persists runtime metadata and snapshots, and no longer stores the onboarding package for recovery.
 - Offscreen restore now uses persisted runtime snapshots as the canonical recovery path.
 - The bridge WASM build script now resolves the current workspace layout by default.
-- Repo-local Playwright ownership moved to the infra test workspace at `../../test/igloo-chrome`.
+- Repo-local Playwright ownership moved to the surrounding workspace test harness.
 
 ### Fixed
 - Runtime restore no longer loses nonce-ready state needed for post-onboarding signing.

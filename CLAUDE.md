@@ -59,16 +59,16 @@ What should not be reintroduced locally:
 
 ## Testing
 
-- Browser coverage lives in the top-level infra repo under `../../test/igloo-chrome`
+- Browser coverage lives in the surrounding workspace Playwright harness
 - The Playwright global setup prebuilds:
   - the extension
-  - shared `igloo-shell` binaries
+  - required shared runtime test binaries
 - The suite currently runs with `2` workers and is green
 
 Keep new browser-behavior changes aligned with that suite.
 
 ## Important Notes
 
-- This is a hard-cut alpha codebase. Do not add compatibility layers for old runtime models or old onboarding flows.
+- This is a beta codebase. Do not add compatibility layers for old runtime models or old onboarding flows.
 - `runtime.snapshot` is for persistence and diagnostics, not the main readiness contract.
 - `Wipe All Data` should keep using signer `wipe_state()` plus extension storage cleanup.

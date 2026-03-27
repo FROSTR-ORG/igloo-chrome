@@ -2,16 +2,16 @@
 
 ## Test layers
 This repository currently relies on browser-level end-to-end coverage owned by the
-top-level infra test workspace.
+workspace test harness.
 
 Primary suite:
 - `npm run test:e2e`
 
-Canonical tiers from the infra test workspace:
-- `npm --prefix ../../test run test:e2e:smoke`
-- `npm --prefix ../../test run test:e2e:fast`
-- `npm --prefix ../../test run test:e2e:live`
-- `npm --prefix ../../test run test:e2e:demo`
+Canonical tiers in the surrounding workspace:
+- `smoke`
+- `fast`
+- `live`
+- `demo`
 
 The Playwright suite covers:
 - onboarding and dashboard smoke flows
@@ -33,7 +33,7 @@ The Playwright suite covers:
 4. `npm run test:e2e`
 
 The Playwright config now runs a global setup step before the suite:
-- prebuilds the shared `igloo-shell` binaries under `../../build/igloo-shell-target`
+- prebuilds the required shared runtime test binaries
 - builds the unpacked extension once
 - then runs the suite with `2` workers
 
@@ -54,20 +54,15 @@ Observability controls:
 
 The infra-owned Playwright fixtures default to `VITE_IGLOO_VERBOSE=1` for live/runtime coverage.
 
-The Playwright source now lives in `../../test/igloo-chrome`.
-
-Cross-repo strategy and manual/demo entrypoints are documented in
-[`../../docs/E2E-DEMO-STRATEGY.md`](../../docs/E2E-DEMO-STRATEGY.md).
+The Playwright source and demo harness live in the surrounding workspace.
 
 ## Notes
 - The live signer tests start local relay/responder fixtures.
-- The demo stack can be started manually from the infra repo root with `./run.sh demo start`.
-- Advanced/operator manual runs may also use direct `docker compose -f compose.test.yml ...`.
-- Manual demo onboarding packages and passwords are written under `../../data/test-harness/`.
+- The demo stack can be started manually through the workspace demo harness.
+- Advanced/operator manual runs may also use direct Docker Compose commands.
+- Manual demo onboarding packages and passwords are written by the harness into its generated artifact directory.
 - Browser-facing local demo relay URLs should use `ws://localhost:<port>`.
-- Playwright live fixtures use isolated Docker Compose project names and per-run temporary artifact directories so `igloo-chrome` and `igloo-home` test runs do not collide.
-- Test results are written under `../../test/igloo-chrome/results/` when Playwright emits artifacts.
+- Playwright live fixtures use isolated Docker Compose project names and per-run temporary artifact directories so browser-host test runs do not collide.
+- Test results are written into the workspace test-results area when Playwright emits artifacts.
 - Failed runs also write `observability-bundle.json` alongside the Playwright artifacts.
 - Runtime diagnostics should be read in this order: Playwright trace, `observability-bundle.json`, signer `runtime_status()` / drained runtime events, then snapshot details if deeper debugging is needed.
-
-Cross-repo architecture and guidance docs live under `../../docs/`.

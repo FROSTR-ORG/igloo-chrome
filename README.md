@@ -2,6 +2,10 @@
 
 Chrome MV3 signing-device extension for FROSTR.
 
+## Status
+
+- Beta.
+
 This project is extension-first:
 - `background.js` is the control plane.
 - `offscreen.html` hosts the signer runtime boundary.
@@ -9,7 +13,7 @@ This project is extension-first:
 - `popup.html` exposes quick status and entry into the dashboard.
 - `content-script.js` and `nostr-provider.js` expose the website bridge.
 
-The runtime target is `bifrost-rs` compiled to browser WASM. The extension UI borrows the newer `igloo-web` operator surface, but the extension architecture is purpose-built for MV3.
+The runtime target is the shared Rust signer runtime compiled to browser WASM. The extension architecture is purpose-built for MV3.
 
 The extension is a thin host over the signer runtime:
 - signer truth comes from `bifrost-rs`
@@ -25,13 +29,13 @@ The extension is a thin host over the signer runtime:
 - runtime snapshots survive offscreen teardown and browser-context relaunch
 - signer-owned `runtime_status()` is the canonical status model
 - signer-owned `drain_runtime_events()` is the normal incremental update path
-- Playwright coverage now lives in `../../test/igloo-chrome` and exercises smoke, provider, live signer, and lifecycle paths
+- Playwright coverage exercises smoke, provider, live signer, and lifecycle paths
 
 ## Prerequisites
 - Node.js and npm
 - `wasm-pack`
 - `clang`
-- local `bifrost-rs` checkout at `../bifrost-rs` in this workspace, or `BIFROST_RS_DIR` set explicitly
+- access to the shared Rust signer runtime source used to build the WASM bridge, or `BIFROST_RS_DIR` set explicitly
 
 ## Build
 1. `npm install`
@@ -50,25 +54,21 @@ Load `dist/` as an unpacked extension in Chrome.
 3. `npm run build`
 4. `npm run test:e2e`
 
-`npm run test:e2e` proxies to the infra-owned Playwright suite under `../../test/igloo-chrome`.
+`npm run test:e2e` proxies to the workspace-owned Playwright suite for this extension.
 
 The Playwright global setup:
 - builds the extension once
-- prebuilds shared shell binaries into `../../build/igloo-shell-target`
+- prebuilds the required shared runtime test binaries
 - runs the chrome suite with `2` workers
 
-The E2E harness writes Playwright artifacts under `../../test/igloo-chrome/results/`. Failed runs also attach `observability-bundle.json` with structured runtime diagnostics and fixture event logs.
+The E2E harness writes Playwright artifacts into the workspace test-results area. Failed runs also attach `observability-bundle.json` with structured runtime diagnostics and fixture event logs.
 
 Manual demo environment:
-- `./run.sh demo start` from the infra repo root starts `services/dev-relay` and `services/igloo-demo`
-- direct `docker compose -f compose.test.yml ...` is also supported for advanced/manual runs
-- manual demo onboarding packages and passwords are written under `../../data/test-harness/`
+- use the workspace demo harness entrypoints for manual onboarding/signing runs
+- direct Docker Compose demo control is also supported for advanced/manual runs
+- manual demo onboarding packages and passwords are written by the harness into its generated artifact directory
 - browser-facing local demo relays should use `ws://localhost:<port>`
-- Playwright fixtures do not use the shared `data/test-harness` path; they provision an isolated compose project plus a temporary artifact directory per test worker
-- `./run.sh demo onboard` prints the current package/password pairs for manual pairing with the extension
-
-Cross-repo demo/testing strategy lives in
-[`../../docs/E2E-DEMO-STRATEGY.md`](../../docs/E2E-DEMO-STRATEGY.md).
+- Playwright fixtures do not use the shared manual-harness path; they provision an isolated compose project plus a temporary artifact directory per test worker
 
 ## Release candidate
 1. `npm run release:candidate`
@@ -82,13 +82,10 @@ The extension expects these files in `public/wasm`:
 Refresh them with:
 - `npm run build:bridge-wasm`
 
-Default `bifrost-rs` path:
-- `../bifrost-rs`
+Override the bridge source checkout with:
+- `BIFROST_RS_DIR=/absolute/path/to/runtime-source npm run build:bridge-wasm`
 
-Override with:
-- `BIFROST_RS_DIR=/absolute/path/to/bifrost-rs npm run build:bridge-wasm`
-
-The canonical browser bridge artifacts are owned by [`igloo-shared`](/home/cscott/Repos/frostr/frostr-infra/repos/igloo-shared). The Chrome build step syncs those shared artifacts into the extension `public/wasm` directory.
+The build step syncs the shared browser bridge artifacts into the extension `public/wasm` directory.
 
 ## Build system
 The extension is packaged without Vite.
@@ -102,7 +99,7 @@ The extension is packaged without Vite.
 Independent entry bundling is deliberate because Chrome content scripts and injected provider scripts need deterministic single-file outputs.
 
 ## Shared UI
-Reusable presentational UI comes from `../igloo-ui` as the local `igloo-ui` package.
+Reusable presentational UI comes from the local `igloo-ui` package.
 Extension-specific runtime, provider, and control-plane logic remains in `igloo-chrome`.
 
 ## Project docs
@@ -111,7 +108,3 @@ Extension-specific runtime, provider, and control-plane logic remains in `igloo-
 - [SECURITY.md](./SECURITY.md)
 - [TESTING.md](./TESTING.md)
 - [RELEASE.md](./RELEASE.md)
-- [../../docs/INDEX.md](../../docs/INDEX.md)
-- [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)
-- [../../docs/PROTOCOL.md](../../docs/PROTOCOL.md)
-- [../../docs/adrs/INDEX.md](../../docs/adrs/INDEX.md)

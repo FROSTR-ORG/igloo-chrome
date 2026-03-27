@@ -19,10 +19,6 @@ Security-sensitive areas include:
 - message routing between content script, background, prompt, and offscreen runtime
 - WASM bridge boundaries
 
-Cross-repo architecture context:
-- [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)
-- [../../docs/policies/observability-and-debugging-guidance.md](../../docs/policies/observability-and-debugging-guidance.md)
-
 ## Handling expectations
 - Reports should be acknowledged promptly.
 - Fixes should be validated with automated tests where practical.

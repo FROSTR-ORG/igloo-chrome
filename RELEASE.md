@@ -8,7 +8,7 @@ Produce a deterministic browser-loadable extension candidate from the current re
 - `npm install`
 - `wasm-pack`
 - `clang`
-- local `bifrost-rs` checkout at `../bifrost-rs`, or `BIFROST_RS_DIR` set correctly
+- access to the shared Rust signer runtime source, or `BIFROST_RS_DIR` set correctly
 
 ## Pre-release checks
 1. `bunx tsc --noEmit`
@@ -18,7 +18,7 @@ Produce a deterministic browser-loadable extension candidate from the current re
 
 The current E2E release path uses infra-owned global setup to prebuild:
 - the unpacked extension
-- shared shell binaries under `../../build/igloo-shell-target`
+- required shared runtime test binaries
 
 ## Versioning
 Keep these aligned:
