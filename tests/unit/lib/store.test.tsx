@@ -103,31 +103,31 @@ describe('igloo-chrome StoreProvider', () => {
     mockClient.startOnboarding.mockResolvedValue(undefined);
     mockClient.completeOnboarding.mockImplementation(async (pendingProfile, label) => ({
       id: pendingProfile.id,
-      keysetName: label,
+      groupName: label,
       relays: pendingProfile.relays,
       sharePublicKey: pendingProfile.sharePublicKey,
     }));
     mockClient.importBfprofile.mockImplementation(async (packageText: string, password: string) => ({
       id: 'aa'.repeat(32),
-      keysetName: 'Imported profile',
+      groupName: 'Imported profile',
       relays: ['ws://relay.example'],
       sharePublicKey: '11'.repeat(32),
     }));
     mockClient.recoverBfshare.mockImplementation(async () => ({
       id: 'bb'.repeat(32),
-      keysetName: 'Recovered profile',
+      groupName: 'Recovered profile',
       relays: ['ws://relay.example'],
       sharePublicKey: '22'.repeat(32),
     }));
     mockClient.activateExtensionProfile.mockImplementation(async (profileId: string) => ({
       id: profileId,
-      keysetName: 'Activated profile',
+      groupName: 'Activated profile',
       relays: ['ws://relay.example'],
       sharePublicKey: '33'.repeat(32),
     }));
     mockClient.unlockExtensionProfile.mockImplementation(async (profileId: string) => ({
       id: profileId,
-      keysetName: 'Unlocked profile',
+      groupName: 'Unlocked profile',
       relays: ['ws://relay.example'],
       sharePublicKey: '44'.repeat(32),
     }));
@@ -141,13 +141,13 @@ describe('igloo-chrome StoreProvider', () => {
         configured: true,
         profile: {
           id: '11'.repeat(32),
-          keysetName: 'Chrome signer',
+          groupName: 'Chrome signer',
           relays: ['ws://relay.example'],
           publicKey: 'pubkey'
         },
         profiles: [{
           id: '11'.repeat(32),
-          keysetName: 'Chrome signer',
+          groupName: 'Chrome signer',
           relays: ['ws://relay.example'],
           publicKey: 'pubkey'
         }],
@@ -168,7 +168,7 @@ describe('igloo-chrome StoreProvider', () => {
 
     await waitFor(() => {
       expect(latestStore?.route).toBe('signer');
-      expect(latestStore?.profile?.keysetName).toBe('Chrome signer');
+      expect(latestStore?.profile?.groupName).toBe('Chrome signer');
       expect(latestStore?.isHydratingProfile).toBe(false);
     });
   });
@@ -228,13 +228,13 @@ describe('igloo-chrome StoreProvider', () => {
         configured: true,
         profile: {
           id: '11'.repeat(32),
-          keysetName: 'Chrome signer',
+          groupName: 'Chrome signer',
           relays: ['ws://relay.example'],
           publicKey: 'pubkey'
         },
         profiles: [{
           id: '11'.repeat(32),
-          keysetName: 'Chrome signer',
+          groupName: 'Chrome signer',
           relays: ['ws://relay.example'],
           publicKey: 'pubkey'
         }],
@@ -276,13 +276,13 @@ describe('igloo-chrome StoreProvider', () => {
           configured: true,
           profile: {
             id: '11'.repeat(32),
-            keysetName: 'Chrome signer',
+            groupName: 'Chrome signer',
             relays: ['ws://relay.example'],
             publicKey: 'pubkey'
           },
           profiles: [{
             id: '11'.repeat(32),
-            keysetName: 'Chrome signer',
+            groupName: 'Chrome signer',
             relays: ['ws://relay.example'],
             publicKey: 'pubkey'
           }],
@@ -338,7 +338,7 @@ describe('igloo-chrome StoreProvider', () => {
 
     const profile: StoredExtensionProfile = {
       id: '77'.repeat(32),
-      keysetName: 'Chrome signer',
+      groupName: 'Chrome signer',
       relays: ['ws://relay.example'],
       sharePublicKey: '33'.repeat(32),
     };
@@ -349,7 +349,7 @@ describe('igloo-chrome StoreProvider', () => {
   test('completeOnboarding returns the saved profile and refreshes app state', async () => {
     const pendingProfile: PendingOnboardingProfile = {
       id: '55'.repeat(32),
-      keysetName: 'Onboarded Chrome signer',
+      groupName: 'Onboarded Chrome signer',
       relays: ['ws://relay.example'],
       groupPublicKey: '66'.repeat(32),
       publicKey: '66'.repeat(32),
@@ -360,12 +360,11 @@ describe('igloo-chrome StoreProvider', () => {
       profilePayload: {
         profileId: '55'.repeat(32),
         version: 1,
-        keysetName: 'Onboarded Chrome signer',
+        groupName: 'Onboarded Chrome signer',
         device: {
           name: 'Onboarded Chrome signer',
           shareSecret: '88'.repeat(32),
           manualPeerPolicyOverrides: [],
-          remotePeerPolicyObservations: [],
           relays: ['ws://relay.example']
         },
         groupPackage: {
@@ -377,7 +376,7 @@ describe('igloo-chrome StoreProvider', () => {
     };
     const completedProfile: StoredExtensionProfile = {
       id: '55'.repeat(32),
-      keysetName: 'Onboarded Chrome signer',
+      groupName: 'Onboarded Chrome signer',
       relays: ['ws://relay.example'],
       sharePublicKey: '44'.repeat(32),
     };
@@ -432,7 +431,7 @@ describe('igloo-chrome StoreProvider', () => {
   test('activateProfile refreshes app state after activation', async () => {
     const activatedProfile: StoredExtensionProfile = {
       id: '66'.repeat(32),
-      keysetName: 'Recovered profile',
+      groupName: 'Recovered profile',
       relays: ['ws://relay.example'],
       sharePublicKey: '55'.repeat(32),
     };
@@ -478,7 +477,7 @@ describe('igloo-chrome StoreProvider', () => {
   test('unlockProfile refreshes app state after a successful unlock', async () => {
     const unlockedProfile: StoredExtensionProfile = {
       id: '88'.repeat(32),
-      keysetName: 'Unlocked profile',
+      groupName: 'Unlocked profile',
       relays: ['ws://relay.example'],
       sharePublicKey: '44'.repeat(32),
     };

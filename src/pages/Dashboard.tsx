@@ -38,7 +38,7 @@ const tabs: Array<{
 export default function DashboardPage() {
   const { profile, saveProfile, wipeAllData, logout } = useStore();
   const [activeTab, setActiveTab] = React.useState<DashboardTab>('signer');
-  const profileTag = profile?.id ? `${profile.keysetName ?? 'device'} (${shortProfileId(profile.id)})` : null;
+  const profileTag = profile?.id ? `${profile.groupName ?? 'device'} (${shortProfileId(profile.id)})` : null;
 
   return (
     <PageLayout

@@ -98,7 +98,7 @@ export default function OnboardingPage() {
     signerName.trim().length > 0 && localProfilePassword.trim().length >= 8 && !!pendingConnect;
 
   const previewName = pendingConnect
-    ? pendingConnect.profile.keysetName ?? (signerName.trim() || 'Onboarded device')
+    ? pendingConnect.profile.groupName ?? (signerName.trim() || 'Onboarded device')
     : 'Onboarded device';
 
   async function onConnectOnboarding(e: FormEvent) {
@@ -112,7 +112,7 @@ export default function OnboardingPage() {
         onboardPassword
       });
       setPendingConnect({ kind: 'bfonboard', profile });
-      setSignerName(profile.keysetName ?? profile.profilePayload.device.name ?? '');
+      setSignerName(profile.groupName ?? profile.profilePayload.device.name ?? '');
       setLocalProfilePassword(onboardPassword);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

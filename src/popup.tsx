@@ -49,7 +49,7 @@ function PopupApp() {
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Profile</span>
                 <span className="font-medium text-blue-100">
-                  {status.configured ? status.profile?.keysetName || 'Configured' : 'Not configured'}
+                  {status.configured ? status.profile?.groupName || 'Configured' : 'Not configured'}
                 </span>
               </div>
               <div className="flex items-center justify-between">

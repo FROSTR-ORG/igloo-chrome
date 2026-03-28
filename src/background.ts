@@ -170,7 +170,7 @@ async function normalizeProfileInput(profile: StoredExtensionProfile): Promise<S
     ...profile,
     id,
     relays,
-    keysetName: profile.keysetName?.trim() || undefined,
+    groupName: profile.groupName?.trim() || undefined,
     groupPublicKey: profile.groupPublicKey?.trim().toLowerCase() || undefined,
     sharePublicKey,
     publicKey: profile.publicKey?.trim().toLowerCase() || undefined,
@@ -198,7 +198,7 @@ function toRuntimeProfile(payload: LocalProfileBlobPayload): StoredExtensionProf
   const sharePublicKey = publicKeyFromSecret(payload.profile.device.shareSecret);
   return {
     id: payload.profile.profileId,
-    keysetName: payload.profile.keysetName?.trim() || undefined,
+    groupName: payload.profile.groupPackage.groupName?.trim() || undefined,
     relays,
     groupPublicKey: groupPublicKeyFromPackage(payload.profile.groupPackage),
     publicKey: groupPublicKeyFromPackage(payload.profile.groupPackage),
@@ -412,7 +412,7 @@ function peerPermissionStatesFromStatus(status: RuntimeStatusSummary | null) {
 function toStatusSnapshot(state: ExtensionAppState) {
   return {
     configured: state.configured,
-    keysetName: state.profile?.keysetName ?? null,
+    groupName: state.profile?.groupName ?? null,
     publicKey:
       state.runtime.metadata?.group_public_key ??
       state.profile?.groupPublicKey ??
@@ -1402,7 +1402,7 @@ chromeApi?.runtime?.onMessage?.addListener((message, _sender, sendResponse) => {
           ...active.payload.profile,
           device: {
             ...active.payload.profile.device,
-            name: normalized.keysetName?.trim() || active.payload.profile.device.name,
+            name: normalized.groupName?.trim() || active.payload.profile.device.name,
             relays: normalized.relays
           }
         },

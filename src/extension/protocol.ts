@@ -53,7 +53,7 @@ export type PromptDecisionScope = 'once' | 'forever' | 'kind';
 
 export type StoredExtensionProfile = {
   id: string;
-  keysetName?: string;
+  groupName?: string;
   relays: string[];
   groupPublicKey?: string;
   sharePublicKey?: string;
@@ -73,7 +73,7 @@ export type StoredProfileSummary = {
 
 export type PendingOnboardingProfile = {
   id: string;
-  keysetName?: string;
+  groupName?: string;
   relays: string[];
   groupPublicKey?: string;
   sharePublicKey?: string;

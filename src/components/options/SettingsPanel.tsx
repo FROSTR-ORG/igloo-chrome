@@ -25,7 +25,7 @@ type SettingsPanelProps = {
 export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: SettingsPanelProps) {
   const [message, setMessage] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
-  const [signerName, setSignerName] = React.useState(profile?.keysetName ?? '');
+  const [signerName, setSignerName] = React.useState(profile?.groupName ?? '');
   const [relays, setRelays] = React.useState<string[]>(profile?.relays?.length ? profile.relays : DEFAULT_RELAYS);
   const [newRelayUrl, setNewRelayUrl] = React.useState('');
   const [settings, setSettings] = React.useState<SignerSettings>(
@@ -48,7 +48,7 @@ export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: Set
   }, []);
 
   React.useEffect(() => {
-    setSignerName(profile?.keysetName ?? '');
+    setSignerName(profile?.groupName ?? '');
     setRelays(profile?.relays?.length ? profile.relays : DEFAULT_RELAYS);
   }, [profile]);
 
@@ -105,7 +105,7 @@ export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: Set
 
       const nextProfile: StoredExtensionProfile = {
         ...profile,
-        keysetName: signerName.trim() || undefined,
+        groupName: signerName.trim() || undefined,
         relays: normalizedRelayList,
         signerSettings: normalizedSettings
       };
@@ -259,7 +259,7 @@ export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: Set
                   <div className="grid gap-3 md:grid-cols-3">
                     <div className="rounded border border-blue-900/20 bg-gray-950/30 p-3">
                       <div className="text-xs uppercase tracking-wide text-gray-500">Profile Label</div>
-                      <div className="mt-1 text-sm text-blue-100">{profile.keysetName ?? 'Device'}</div>
+                      <div className="mt-1 text-sm text-blue-100">{profile.groupName ?? 'Device'}</div>
                     </div>
                     <div className="rounded border border-blue-900/20 bg-gray-950/30 p-3">
                       <div className="text-xs uppercase tracking-wide text-gray-500">Group Public Key</div>

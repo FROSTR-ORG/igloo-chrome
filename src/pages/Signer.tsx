@@ -264,7 +264,7 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
   const content = (
     <OperatorSignerPanel
       profile={{
-        name: profile.keysetName || 'Unnamed signer',
+        name: profile.groupName || 'Unnamed signer',
         groupPublicKey: profile.groupPublicKey,
         sharePublicKey: profile.sharePublicKey,
       }}

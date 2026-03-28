@@ -24,7 +24,7 @@ import type { SignerSettings } from '@/lib/signer-settings';
 
 export type ExtensionStatusSnapshot = {
   configured: boolean;
-  keysetName: string | null;
+  groupName: string | null;
   publicKey: string | null;
   sharePublicKey: string | null;
   relays: string[];

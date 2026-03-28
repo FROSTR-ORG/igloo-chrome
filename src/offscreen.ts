@@ -204,11 +204,10 @@ async function runtimePayloadFromSnapshot(args: {
             respond: { echo: 'unset', ping: 'unset', onboard: 'unset', sign: 'unset', ecdh: 'unset' },
           },
         })),
-      remotePeerPolicyObservations: [],
       relays: args.relays,
     },
-    keysetName: args.label.trim() || 'Onboarded device',
     groupPackage: {
+      groupName: args.label.trim() || 'Onboarded device',
       groupPk: normalizeHex32(group?.group_pk ?? '', 'group public key'),
       threshold: Math.trunc(group?.threshold ?? 0),
       members,
@@ -238,7 +237,7 @@ async function loadUnlockedProfileById(profileId: string, timeoutMs = PROFILE_ST
       const payload = await decryptLocalProfileBlobWithSessionKey(record.blob, sessionKeyB64);
       const profile: StoredExtensionProfile = {
         id: payload.profile.profileId,
-        keysetName: payload.profile.keysetName,
+        groupName: payload.profile.groupPackage.groupName,
         relays: payload.profile.device.relays,
         groupPublicKey: groupPublicKeyFromPackage(payload.profile.groupPackage),
         publicKey: groupPublicKeyFromPackage(payload.profile.groupPackage),
@@ -839,9 +838,9 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
         input && typeof input.onboardPackage === 'string' ? input.onboardPackage.trim() : '';
       const onboardPassword =
         input && typeof input.onboardPassword === 'string' ? input.onboardPassword : '';
-      const keysetName =
-        input && typeof input.keysetName === 'string' && input.keysetName.trim()
-          ? input.keysetName.trim()
+      const groupName =
+        input && typeof input.groupName === 'string' && input.groupName.trim()
+          ? input.groupName.trim()
           : undefined;
       if (!onboardPackage || !onboardPassword) {
         throw new Error('onboarding.connect requires package and password');
@@ -855,7 +854,7 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
         const result = await connectOnboardingPackageAndCaptureProfile({
           packageText: onboardPackage,
           password: onboardPassword,
-          keysetName,
+          groupName,
         }).catch(async (error) => {
           const failure = activationFailure('decode_failed', toErrorMessage(error), 'offscreen');
           await updateOnboardingLifecycle(
@@ -882,13 +881,13 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
           relayCount: result.decoded.relays.length,
         }).catch(() => undefined);
         const payload = await runtimePayloadFromSnapshot({
-          label: result.profile.keysetName?.trim() || 'Onboarded device',
+          label: result.profile.groupName?.trim() || 'Onboarded device',
           relays: decodedPackage.relays,
           runtimeSnapshotJson: result.runtimeSnapshotJson
         });
         const pendingProfile: PendingOnboardingProfile = {
           id: payload.profileId,
-          keysetName: result.profile.keysetName,
+          groupName: result.profile.groupName,
           relays: result.profile.relays,
           groupPublicKey: result.profile.groupPublicKey,
           publicKey: result.profile.groupPublicKey,
@@ -928,7 +927,7 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
       const sharePublicKey = publicKeyFromSecret(decoded.device.shareSecret);
       const profile: StoredExtensionProfile = {
         id: decoded.profileId,
-        keysetName: decoded.keysetName,
+        groupName: decoded.groupPackage.groupName,
         relays: decoded.device.relays,
         groupPublicKey: groupPublicKeyFromPackage(decoded.groupPackage),
         publicKey: groupPublicKeyFromPackage(decoded.groupPackage),
@@ -962,7 +961,7 @@ async function handleRpc(rpcType: string, payload?: Record<string, unknown>) {
       const sharePublicKey = publicKeyFromSecret(recovered.share.shareSecret);
       const profile: StoredExtensionProfile = {
         id: recovered.profile.profileId,
-        keysetName: recovered.profile.keysetName,
+        groupName: recovered.profile.groupPackage.groupName,
         relays: recovered.profile.device.relays,
         groupPublicKey: groupPublicKeyFromPackage(recovered.profile.groupPackage),
         publicKey: groupPublicKeyFromPackage(recovered.profile.groupPackage),
