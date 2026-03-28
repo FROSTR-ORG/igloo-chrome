@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, adapted for this repository.
 
+## [0.3.0] - 2026-03-27
+
+### Added
+- Root project documentation for testing and contribution flow aligned with the current beta workspace.
+
+### Changed
+- Profile, onboarding, and recovery handling now consume structured `groupPackage` data with embedded `groupName`.
+- Extension runtime and UI surfaces now treat remote peer policy observations as runtime-only state.
+- Shared bridge artifacts and package helpers are aligned to the current browser package contract.
+
+### Fixed
+- Browser onboarding, profile import, recovery, and rotation fixtures now match the embedded-group-name package shape.
+- Offscreen/runtime profile handling no longer depends on retired top-level group metadata fields.
+
 ## [0.2.0] - 2026-03-08
 
 ### Added

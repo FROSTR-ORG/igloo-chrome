@@ -1,7 +1,7 @@
 {
   "name": "igloo-chrome",
   "description": "FROSTR browser signing device powered by bifrost-rs",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "manifest_version": 3,
   "minimum_chrome_version": "116",
   "icons": {
