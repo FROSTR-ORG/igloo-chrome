@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "build:ui": "npm --prefix ../igloo-ui run build",
+    "build:app": "npm run build:bridge-wasm && node ./scripts/build.mjs",
     "dev": "npm run build:ui && npm run build:bridge-wasm && node ./scripts/build.mjs",
-    "build": "npm run build:ui && npm run build:bridge-wasm && node ./scripts/build.mjs",
+    "build": "npm run build:ui && npm run build:app",
     "build:bridge-wasm": "node ./scripts/sync-bridge-wasm.mjs",
     "test:unit": "vitest run",
     "test:e2e": "npm --prefix ../../test run test:e2e:igloo-chrome",
