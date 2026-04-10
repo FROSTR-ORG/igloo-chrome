@@ -17,7 +17,12 @@ const BIFROST_RS_DIR = process.env.BIFROST_RS_DIR
 const WASM_ARTIFACTS = [
   'bifrost_bridge_wasm.js',
   'bifrost_bridge_wasm.d.ts',
-  'bifrost_bridge_wasm_bg.wasm'
+  'bifrost_bridge_wasm_bg.wasm',
+  'bifrost_bridge_wasm_loader.mjs',
+  'bifrost_profile_wasm.js',
+  'bifrost_profile_wasm.d.ts',
+  'bifrost_profile_wasm_bg.wasm',
+  'bifrost_profile_wasm_loader.mjs'
 ].map((name) => path.join(IGLOO_ROOT, 'public/wasm', name));
 
 function exists(filePath) {
@@ -76,11 +81,11 @@ function newestArtifactMtimeMs() {
 }
 
 function rebuild() {
-  execFileSync('npm', ['run', 'build:bridge-wasm'], {
+  execFileSync('npm', ['run', 'build:browser-wasm'], {
     cwd: SHARED_ROOT,
     stdio: 'inherit'
   });
-  execFileSync('npm', ['run', 'build:bridge-wasm'], {
+  execFileSync('npm', ['run', 'build:browser-wasm'], {
     cwd: IGLOO_ROOT,
     stdio: 'inherit'
   });
@@ -106,7 +111,7 @@ function main() {
     return;
   }
 
-  console.log('[ensure-bridge-wasm] bridge wasm artifacts are up to date');
+  console.log('[ensure-bridge-wasm] browser wasm artifacts are up to date');
 }
 
 main();

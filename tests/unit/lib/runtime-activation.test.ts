@@ -7,22 +7,22 @@ describe('deriveRuntimePresentation', () => {
     const presentation = deriveRuntimePresentation(
       'failed',
       'cold',
-      'Offscreen document timed out after 10000ms',
+      'Signer runtime connect timed out after 10000ms',
     );
 
     expect(presentation.runtimeState).toBe('stopped');
     expect(presentation.runtimeControlLabel).toBe('Retry Runtime');
     expect(presentation.runtimeSummaryLabel).toBe('Runtime failed');
     expect(presentation.runtimeError).toContain('Signer activation failed before the extension runtime became ready.');
-    expect(presentation.runtimeError).toContain('Offscreen document timed out after 10000ms');
+    expect(presentation.runtimeError).toContain('Signer runtime connect timed out after 10000ms');
   });
 
-  test('treats offscreen startup stages as connecting', () => {
-    const presentation = deriveRuntimePresentation('waiting_offscreen_ready', 'cold', null);
+  test('treats runtime restore as connecting', () => {
+    const presentation = deriveRuntimePresentation('restoring_runtime', 'cold', null);
 
     expect(presentation.runtimeState).toBe('connecting');
     expect(presentation.runtimeControlLabel).toBe('Starting...');
-    expect(presentation.runtimeSummaryLabel).toBe('Waiting for offscreen runtime');
+    expect(presentation.runtimeSummaryLabel).toBe('Restoring runtime');
     expect(presentation.runtimeError).toBeNull();
   });
 

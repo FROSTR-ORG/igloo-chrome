@@ -2,7 +2,7 @@ import * as React from 'react';
 import ReactDOM from 'react-dom/client';
 import { Button, Card, CardContent, CardHeader, CardTitle } from 'igloo-ui';
 import { getChromeApi } from '@/extension/chrome';
-import { MESSAGE_TYPE, isProviderMethod } from '@/extension/protocol';
+import { COMMAND_TYPE, isProviderMethod } from '@/extension/protocol';
 
 type PromptPayload = {
   id: string;
@@ -48,7 +48,7 @@ function PromptApp() {
       setSubmitting(true);
       try {
         await chromeApi.runtime.sendMessage({
-          type: MESSAGE_TYPE.PROMPT_RESPONSE,
+          type: COMMAND_TYPE.PROMPTS_RESPOND,
           id: payload.id,
           allow,
           scope

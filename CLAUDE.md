@@ -8,21 +8,21 @@ This file provides guidance for working in `igloo-chrome`.
 
 Architecture:
 - `background.ts` is the control plane
-- `offscreen.ts` hosts the live signer runtime
+- `background.ts` also hosts the live signer runtime
 - `options.html` is the operator dashboard
 - `popup.html` is a quick status surface
 - `nostr-provider.ts` and `content-script.ts` expose the website bridge
 
 The extension is intentionally thin:
 - signer truth comes from `bifrost-rs`
-- background caches signer-owned `runtime_status()`
+- background owns signer lifecycle and distributes signer-owned `runtime_status()`
 - UI updates are driven by `drain_runtime_events()` plus explicit refreshes
 - provider flows call `prepare_sign()` / `prepare_ecdh()` before crypto work
 
 ## Build & Verification Commands
 
 ```bash
-npm run build:bridge-wasm
+npm run build:browser-wasm
 npm run build
 bunx tsc --noEmit
 npm run test:e2e
@@ -37,8 +37,7 @@ VITE_IGLOO_DEBUG=1 npm run build
 
 ## Runtime Boundaries
 
-- `src/background.ts`: extension orchestration, cached status, prompts, runtime control
-- `src/offscreen.ts`: live signer runtime host
+- `src/background.ts`: extension orchestration, runtime host, prompts, runtime control
 - `src/lib/igloo.ts`: browser-side wrapper over the WASM signer bridge
 - `src/extension/client.ts`: typed UI/control client for background messaging
 - `src/lib/store.tsx`: options-page control-plane state only
@@ -52,7 +51,7 @@ Reusable presentational UI comes from the sibling `igloo-ui` package.
 What stays in `igloo-chrome`:
 - extension-specific page composition
 - settings/permissions behavior
-- background/offscreen/provider wiring
+- background/provider wiring
 
 What should not be reintroduced locally:
 - duplicate copies of shared `button`, `card`, `peer-list`, `event-log`, `page-layout`, or onboarding presentation
@@ -71,4 +70,4 @@ Keep new browser-behavior changes aligned with that suite.
 
 - This is a beta codebase. Do not add compatibility layers for old runtime models or old onboarding flows.
 - `runtime.snapshot` is for persistence and diagnostics, not the main readiness contract.
-- `Wipe All Data` should keep using signer `wipe_state()` plus extension storage cleanup.
+- The operator settings surface is standardized around `copy profile`, `copy share`, `rotate share`, and `logout`.

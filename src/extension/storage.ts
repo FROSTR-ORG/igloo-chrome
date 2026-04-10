@@ -1,6 +1,5 @@
 import { getChromeApi } from '@/extension/chrome';
 import {
-  type ExtensionAppState,
   extractEventKind,
   type ActivationLifecycleState,
   type ActivationStage,
@@ -11,18 +10,17 @@ import {
   type OnboardingLifecycleState,
   type OnboardingStage,
   type ProviderMethod,
-  type StoredPeerPolicy,
   type StoredPermissionPolicy
 } from '@/extension/protocol';
 import type { LocalProfileBlobRecord } from '@/lib/profile-blob';
 
-export const PROFILES_STORAGE_KEY = 'igloo.ext.profiles';
-export const ACTIVE_PROFILE_ID_STORAGE_KEY = 'igloo.ext.activeProfileId';
-export const PERMISSIONS_STORAGE_KEY = 'igloo.ext.permissions';
-export const SESSION_UNLOCKS_STORAGE_KEY = 'igloo.ext.sessionUnlocks';
-export const LIFECYCLE_STORAGE_KEY = 'igloo.ext.lifecycle';
-export const LIFECYCLE_HISTORY_STORAGE_KEY = 'igloo.ext.lifecycleHistory';
-export const APP_STATE_STORAGE_KEY = 'igloo.ext.appState';
+export const PROFILES_STORAGE_KEY = 'igloo.v3.ext.profiles';
+export const ACTIVE_PROFILE_ID_STORAGE_KEY = 'igloo.v3.ext.activeProfileId';
+export const PERMISSIONS_STORAGE_KEY = 'igloo.v3.ext.permissions';
+export const SESSION_UNLOCKS_STORAGE_KEY = 'igloo.v3.ext.sessionUnlocks';
+export const LIFECYCLE_STORAGE_KEY = 'igloo.v3.ext.lifecycle';
+export const LIFECYCLE_HISTORY_STORAGE_KEY = 'igloo.v3.ext.lifecycleHistory';
+export const RUNTIME_DESIRED_ACTIVE_STORAGE_KEY = 'igloo.v3.ext.runtimeDesiredActive';
 const LIFECYCLE_HISTORY_LIMIT = 100;
 type SessionUnlockRecord = {
   keyB64: string;
@@ -102,6 +100,35 @@ export async function saveStoredProfileRecord(record: LocalProfileBlobRecord) {
   await storageSet(PROFILES_STORAGE_KEY, next);
 }
 
+export async function saveStoredProfileRecordIfPresent(
+  record: LocalProfileBlobRecord,
+) {
+  const records = await loadStoredProfileRecords();
+  if (!records.some((entry) => entry.id === record.id)) {
+    return false;
+  }
+  const next = records.map((entry) => (entry.id === record.id ? record : entry));
+  await storageSet(PROFILES_STORAGE_KEY, next);
+  return true;
+}
+
+export async function replaceStoredProfileRecord(
+  targetProfileId: string,
+  record: LocalProfileBlobRecord,
+) {
+  const records = await loadStoredProfileRecords();
+  const next = [
+    record,
+    ...records.filter(
+      (entry) => entry.id !== targetProfileId && entry.id !== record.id,
+    ),
+  ];
+  await storageSet(PROFILES_STORAGE_KEY, next);
+  if (targetProfileId !== record.id) {
+    await clearUnlockedProfileKey(targetProfileId);
+  }
+}
+
 export async function loadActiveProfileId() {
   return (await storageGet<string>(ACTIVE_PROFILE_ID_STORAGE_KEY)) ?? null;
 }
@@ -121,11 +148,7 @@ export async function deleteStoredProfileRecord(profileId: string) {
   await clearUnlockedProfileKey(profileId);
   const activeProfileId = await loadActiveProfileId();
   if (activeProfileId === profileId) {
-    if (next.length > 0) {
-      await storageSet(ACTIVE_PROFILE_ID_STORAGE_KEY, next[0].id);
-    } else {
-      await storageRemove(ACTIVE_PROFILE_ID_STORAGE_KEY);
-    }
+    await storageRemove(ACTIVE_PROFILE_ID_STORAGE_KEY);
   }
 }
 
@@ -162,6 +185,11 @@ export async function clearUnlockedProfileKeys() {
   await sessionStorageRemove(SESSION_UNLOCKS_STORAGE_KEY);
 }
 
+export async function loadUnlockedProfileIds() {
+  const unlocks = await loadSessionUnlocks();
+  return new Set(Object.keys(unlocks));
+}
+
 function now() {
   return Date.now();
 }
@@ -191,40 +219,16 @@ export function defaultLifecycleStatusSnapshot(): LifecycleStatusSnapshot {
   };
 }
 
-export function defaultExtensionAppState(): ExtensionAppState {
-  return {
-    configured: false,
-    profile: null,
-    profiles: [],
-    activeProfileId: null,
-    lifecycle: defaultLifecycleStatusSnapshot(),
-    runtime: {
-      phase: 'cold',
-      summary: null,
-      metadata: null,
-      readiness: null,
-      peerStatus: [],
-      pendingOperations: [],
-      snapshot: null,
-      snapshotError: null,
-      lifecycle: {
-        bootMode: 'unknown',
-        reason: null,
-        updatedAt: null
-      },
-      lastError: null
-    },
-    permissionPolicies: [],
-    pendingPrompts: 0
-  };
+export async function loadRuntimeDesiredActive(): Promise<boolean> {
+  return (await storageGet<boolean>(RUNTIME_DESIRED_ACTIVE_STORAGE_KEY)) === true;
 }
 
-export async function loadExtensionAppState(): Promise<ExtensionAppState> {
-  return (await storageGet<ExtensionAppState>(APP_STATE_STORAGE_KEY)) ?? defaultExtensionAppState();
-}
-
-export async function saveExtensionAppState(state: ExtensionAppState): Promise<void> {
-  await storageSet(APP_STATE_STORAGE_KEY, state);
+export async function setRuntimeDesiredActive(value: boolean): Promise<void> {
+  if (!value) {
+    await storageRemove(RUNTIME_DESIRED_ACTIVE_STORAGE_KEY);
+    return;
+  }
+  await storageSet(RUNTIME_DESIRED_ACTIVE_STORAGE_KEY, true);
 }
 
 export async function loadLifecycleStatus(): Promise<LifecycleStatusSnapshot> {
@@ -344,8 +348,8 @@ export async function removePermissionPolicy(target: StoredPermissionPolicy) {
 export async function clearExtensionProfile() {
   await storageRemove(PROFILES_STORAGE_KEY);
   await storageRemove(ACTIVE_PROFILE_ID_STORAGE_KEY);
+  await storageRemove(RUNTIME_DESIRED_ACTIVE_STORAGE_KEY);
   await clearUnlockedProfileKeys();
-  await storageRemove(APP_STATE_STORAGE_KEY);
   await clearLifecycleStatus();
 }
 

@@ -1,17 +1,21 @@
 type ChromeGlobal = typeof globalThis & {
   chrome?: {
-    offscreen?: {
-      createDocument?: (options: {
-        url: string;
-        reasons: string[];
-        justification: string;
-      }) => Promise<void>;
-      closeDocument?: () => Promise<void>;
-    };
+    runtimePort?: never;
     runtime?: {
+      connect?: (connectInfo?: { name?: string }) => {
+        postMessage?: (message: unknown) => void;
+        disconnect?: () => void;
+        onMessage?: {
+          addListener?: (listener: (message: unknown) => void) => void;
+          removeListener?: (listener: (message: unknown) => void) => void;
+        };
+        onDisconnect?: {
+          addListener?: (listener: () => void) => void;
+          removeListener?: (listener: () => void) => void;
+        };
+      };
       id?: string;
       getURL?: (path: string) => string;
-      getContexts?: (filter: Record<string, unknown>) => Promise<unknown[]>;
       openOptionsPage?: () => Promise<void>;
       reload?: () => void;
       sendMessage?: (message: unknown) => Promise<unknown>;
@@ -31,6 +35,23 @@ type ChromeGlobal = typeof globalThis & {
             sender: unknown,
             sendResponse: (response?: unknown) => void
           ) => boolean | void
+        ) => void;
+      };
+      onConnect?: {
+        addListener?: (
+          listener: (port: {
+            name?: string;
+            postMessage?: (message: unknown) => void;
+            disconnect?: () => void;
+            onMessage?: {
+              addListener?: (listener: (message: unknown) => void) => void;
+              removeListener?: (listener: (message: unknown) => void) => void;
+            };
+            onDisconnect?: {
+              addListener?: (listener: () => void) => void;
+              removeListener?: (listener: () => void) => void;
+            };
+          }) => void
         ) => void;
       };
     };

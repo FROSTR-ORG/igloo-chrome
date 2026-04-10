@@ -1,13 +1,5 @@
 import * as React from 'react';
 import { ContentCard, Input, OperatorSettingsPanel, Textarea, Button } from 'igloo-ui';
-import {
-  completeRotationOnboarding,
-  fetchExtensionStatus,
-  fetchRuntimeConfig,
-  startOnboarding,
-  sendRuntimeControl,
-  updateRuntimeConfig
-} from '@/extension/client';
 import type { PendingOnboardingProfile, StoredExtensionProfile } from '@/extension/protocol';
 import { DEFAULT_RELAYS, groupPublicKeyFromPackage, normalizeRelays } from '@/lib/igloo';
 import {
@@ -18,11 +10,23 @@ import {
 type SettingsPanelProps = {
   profile?: StoredExtensionProfile;
   saveProfile: (profile: StoredExtensionProfile) => Promise<void>;
-  logout: () => void;
-  wipeAllData: () => Promise<void>;
+  connectOnboarding: (input: { onboardPackage: string; onboardPassword: string }) => Promise<PendingOnboardingProfile>;
+  completeRotationUpdate: (
+    targetProfileId: string,
+    pendingProfile: PendingOnboardingProfile
+  ) => Promise<StoredExtensionProfile>;
+  copyProfilePackage: (format: 'bfprofile' | 'bfshare', password: string) => Promise<string>;
+  logout: () => Promise<void>;
 };
 
-export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: SettingsPanelProps) {
+export function SettingsPanel({
+  profile,
+  saveProfile,
+  connectOnboarding,
+  completeRotationUpdate,
+  copyProfilePackage,
+  logout,
+}: SettingsPanelProps) {
   const [message, setMessage] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [signerName, setSignerName] = React.useState(profile?.groupName ?? '');
@@ -31,6 +35,7 @@ export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: Set
   const [settings, setSettings] = React.useState<SignerSettings>(
     normalizeSignerSettings(profile?.signerSettings)
   );
+  const [exportPassword, setExportPassword] = React.useState('');
   const [rotatePackage, setRotatePackage] = React.useState('');
   const [rotatePassword, setRotatePassword] = React.useState('');
   const [pendingRotation, setPendingRotation] = React.useState<PendingOnboardingProfile | null>(null);
@@ -50,24 +55,6 @@ export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: Set
   React.useEffect(() => {
     setSignerName(profile?.groupName ?? '');
     setRelays(profile?.relays?.length ? profile.relays : DEFAULT_RELAYS);
-  }, [profile]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    void fetchRuntimeConfig()
-      .then((runtimeConfig) => {
-        if (!cancelled) {
-          setSettings(normalizeSignerSettings(runtimeConfig));
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setMessage(error instanceof Error ? error.message : String(error));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
   }, [profile]);
 
   const handleAddRelay = () => {
@@ -110,19 +97,10 @@ export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: Set
         signerSettings: normalizedSettings
       };
 
-      delete nextProfile.peerPubkey;
-
       const previousRelays = normalizeRelays(profile.relays ?? DEFAULT_RELAYS).relays;
       const relayChanged = JSON.stringify(previousRelays) !== JSON.stringify(normalizedRelayList);
 
       await saveProfile(nextProfile);
-      const status = await fetchExtensionStatus().catch(() => null);
-      if (status?.runtime === 'ready') {
-        await updateRuntimeConfig(normalizedSettings);
-        if (relayChanged) {
-          await sendRuntimeControl('reloadConfiguredRuntime');
-        }
-      }
 
       setRelays(normalizedRelayList);
       setSettings(normalizedSettings);
@@ -139,7 +117,7 @@ export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: Set
     setRotating(true);
     setMessage(null);
     try {
-      const pending = await startOnboarding({
+      const pending = await connectOnboarding({
         onboardPackage: rotatePackage.trim(),
         onboardPassword: rotatePassword,
       });
@@ -163,10 +141,7 @@ export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: Set
     setRotating(true);
     setMessage(null);
     try {
-      await completeRotationOnboarding({
-        targetProfileId: profile.id,
-        pendingProfile: pendingRotation,
-      });
+      await completeRotationUpdate(profile.id, pendingRotation);
       setPendingRotation(null);
       setRotatePackage('');
       setRotatePassword('');
@@ -176,6 +151,17 @@ export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: Set
     } finally {
       setRotating(false);
     }
+  };
+
+  const handleCopyPackage = async (format: 'bfprofile' | 'bfshare') => {
+    if (!exportPassword.trim()) {
+      throw new Error('Package password is required.');
+    }
+    const packageText = await copyProfilePackage(format, exportPassword);
+    if (!navigator.clipboard?.writeText) {
+      throw new Error('Clipboard access is unavailable.');
+    }
+    await navigator.clipboard.writeText(packageText);
   };
 
   return (
@@ -199,89 +185,116 @@ export function SettingsPanel({ profile, saveProfile, logout, wipeAllData }: Set
       onSave={() => void handleSave()}
       saving={saving}
       message={message}
+      maintenanceDescription="Extension package export, share rotation, and session controls."
       maintenanceActions={[
         {
-          label: 'Log Out',
+          label: 'copy profile',
           variant: 'secondary',
           disabled: !profile,
-          onClick: () => void runAction(() => logout(), 'Logged out of active profile'),
+          onClick: () => void runAction(() => handleCopyPackage('bfprofile'), 'profile copied to clipboard'),
         },
         {
-          label: 'Wipe All Data',
-          variant: 'destructive',
+          label: 'copy share',
+          variant: 'secondary',
           disabled: !profile,
-          onClick: () => void runAction(() => wipeAllData(), 'All signer data wiped'),
+          onClick: () => void runAction(() => handleCopyPackage('bfshare'), 'share copied to clipboard'),
+        },
+        {
+          label: 'logout',
+          variant: 'outline',
+          disabled: !profile,
+          onClick: () => void runAction(() => logout(), 'Logged out of active profile'),
         },
       ]}
       extraSections={
         profile ? (
-          <ContentCard
-            title="Rotate Key"
-            description="Apply a rotated bfonboard package to replace this device share while preserving the same keyset."
-          >
-            <div className="space-y-4">
-              {!pendingRotation ? (
-                <>
-                  <label className="block">
-                    <div className="text-xs uppercase tracking-wide text-gray-500">bfonboard</div>
-                    <Textarea
-                      className="mt-2 min-h-[120px] text-sm font-mono"
-                      placeholder="bfonboard1..."
-                      value={rotatePackage}
-                      onChange={(event) => setRotatePackage(event.target.value)}
-                    />
-                  </label>
-                  <label className="block">
-                    <div className="text-xs uppercase tracking-wide text-gray-500">Package Password</div>
-                    <Input
-                      className="mt-2"
-                      type="password"
-                      value={rotatePassword}
-                      onChange={(event) => setRotatePassword(event.target.value)}
-                    />
-                  </label>
-                  <div className="flex justify-end">
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={!rotatePackage.trim() || rotatePassword.trim().length < 8 || rotating}
-                      onClick={() => void handleConnectRotation()}
-                    >
-                      {rotating ? 'Connecting…' : 'Connect Rotation Package'}
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="rounded border border-cyan-900/30 bg-cyan-950/20 px-3 py-3 text-sm text-cyan-100">
-                    Same keyset, fresh device share. Confirm to replace the active device profile with the rotated share.
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <div className="rounded border border-blue-900/20 bg-gray-950/30 p-3">
-                      <div className="text-xs uppercase tracking-wide text-gray-500">Profile Label</div>
-                      <div className="mt-1 text-sm text-blue-100">{profile.groupName ?? 'Device'}</div>
+          <>
+            <ContentCard
+              title="Export Password"
+              description="Used to protect copied profile and share packages."
+            >
+              <label className="block">
+                <div className="text-xs uppercase tracking-wide text-gray-500">Package Password</div>
+                <Input
+                  className="mt-2"
+                  type="password"
+                  value={exportPassword}
+                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => setExportPassword(event.target.value)}
+                />
+              </label>
+            </ContentCard>
+            <ContentCard
+              title="rotate share"
+              description="Apply a rotated bfonboard package to replace this device share while preserving the same keyset."
+            >
+              <div className="space-y-4">
+                {!pendingRotation ? (
+                  <>
+                    <label className="block">
+                      <div className="text-xs uppercase tracking-wide text-gray-500">bfonboard</div>
+                      <Textarea
+                        className="mt-2 min-h-[120px] text-sm font-mono"
+                        placeholder="bfonboard1..."
+                        value={rotatePackage}
+                        onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                          setRotatePackage(event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="block">
+                      <div className="text-xs uppercase tracking-wide text-gray-500">Package Password</div>
+                      <Input
+                        className="mt-2"
+                        type="password"
+                        value={rotatePassword}
+                        onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                          setRotatePassword(event.target.value)
+                        }
+                      />
+                    </label>
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={!rotatePackage.trim() || rotatePassword.trim().length < 8 || rotating}
+                        onClick={() => void handleConnectRotation()}
+                      >
+                        {rotating ? 'Connecting…' : 'rotate share'}
+                      </Button>
                     </div>
-                    <div className="rounded border border-blue-900/20 bg-gray-950/30 p-3">
-                      <div className="text-xs uppercase tracking-wide text-gray-500">Group Public Key</div>
-                      <div className="mt-1 truncate text-sm text-blue-100">{groupPublicKeyFromPackage(pendingRotation.profilePayload.groupPackage)}</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="rounded border border-cyan-900/30 bg-cyan-950/20 px-3 py-3 text-sm text-cyan-100">
+                      Same keyset, fresh device share. Confirm to replace the active device profile with the rotated share.
                     </div>
-                    <div className="rounded border border-blue-900/20 bg-gray-950/30 p-3">
-                      <div className="text-xs uppercase tracking-wide text-gray-500">New Profile Id</div>
-                      <div className="mt-1 truncate text-sm text-blue-100">{pendingRotation.profilePayload.profileId}</div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className="rounded border border-blue-900/20 bg-gray-950/30 p-3">
+                        <div className="text-xs uppercase tracking-wide text-gray-500">Profile Label</div>
+                        <div className="mt-1 text-sm text-blue-100">{profile.groupName ?? 'Device'}</div>
+                      </div>
+                      <div className="rounded border border-blue-900/20 bg-gray-950/30 p-3">
+                        <div className="text-xs uppercase tracking-wide text-gray-500">Group Public Key</div>
+                        <div className="mt-1 truncate text-sm text-blue-100">{groupPublicKeyFromPackage(pendingRotation.profilePayload.groupPackage)}</div>
+                      </div>
+                      <div className="rounded border border-blue-900/20 bg-gray-950/30 p-3">
+                        <div className="text-xs uppercase tracking-wide text-gray-500">New Profile Id</div>
+                        <div className="mt-1 truncate text-sm text-blue-100">{pendingRotation.profilePayload.profileId}</div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button type="button" variant="secondary" size="sm" onClick={() => setPendingRotation(null)} disabled={rotating}>
-                      Cancel
-                    </Button>
-                    <Button type="button" size="sm" onClick={() => void handleConfirmRotation()} disabled={rotating}>
-                      {rotating ? 'Replacing…' : 'Replace Active Device'}
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          </ContentCard>
+                    <div className="flex justify-end gap-2">
+                      <Button type="button" variant="secondary" size="sm" onClick={() => setPendingRotation(null)} disabled={rotating}>
+                        Cancel
+                      </Button>
+                      <Button type="button" size="sm" onClick={() => void handleConfirmRotation()} disabled={rotating}>
+                        {rotating ? 'Replacing…' : 'rotate share'}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </ContentCard>
+          </>
         ) : null
       }
     />

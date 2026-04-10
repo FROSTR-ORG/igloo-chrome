@@ -1,17 +1,16 @@
 import * as React from 'react';
 import ReactDOM from 'react-dom/client';
 import { AppHeader, Button, Card, CardContent, CardHeader, CardTitle } from 'igloo-ui';
-import { getChromeApi } from '@/extension/chrome';
-import { fetchExtensionAppState } from '@/extension/client';
-import type { ExtensionAppState } from '@/extension/protocol';
+import { fetchExtensionState, openDashboard as openExtensionDashboard } from '@/extension/client';
+import type { ExtensionStateSnapshot } from '@/extension/protocol';
 
 function PopupApp() {
-  const [status, setStatus] = React.useState<ExtensionAppState | null>(null);
+  const [status, setStatus] = React.useState<ExtensionStateSnapshot | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const refresh = React.useCallback(async () => {
     try {
-      setStatus(await fetchExtensionAppState());
+      setStatus(await fetchExtensionState());
       setError(null);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -23,9 +22,7 @@ function PopupApp() {
   }, [refresh]);
 
   const openDashboard = React.useCallback(async () => {
-    const chromeApi = getChromeApi();
-    if (!chromeApi?.runtime?.sendMessage) return;
-    await chromeApi.runtime.sendMessage({ type: 'ext.openDashboard' });
+    await openExtensionDashboard();
     window.close();
   }, []);
 

@@ -2,24 +2,40 @@ import React, { createContext, useContext, useMemo, useState } from 'react';
 import { getChromeApi } from '@/extension/chrome';
 import {
   activateExtensionProfile,
-  clearExtensionProfileState,
+  clearPermissionPolicies,
+  clearRuntimePeerPolicyOverrides,
   completeOnboarding as completeOnboardingClient,
   completeRotationOnboarding,
-  fetchExtensionAppState,
+  deleteExtensionProfile,
+  exportProfilePackage as exportExtensionProfilePackage,
+  fetchExtensionState,
+  fetchRuntimeDiagnostics,
   importBfprofile,
+  prepareRuntime,
+  refreshRuntimePeers,
   recoverBfshare,
+  reloadRuntime,
+  revokePermissionPolicy,
   saveExtensionProfile,
-  sendRuntimeControl,
+  logoutExtensionProfile,
   startOnboarding,
+  startRuntime,
+  stopRuntime,
   unlockExtensionProfile,
+  updateRuntimeConfig,
+  updateRuntimePeerPolicy,
   type StartOnboardingInput
 } from '@/extension/client';
 import {
-  MESSAGE_TYPE,
-  type ExtensionAppState,
+  EVENT_TYPE,
+  type ExtensionStateSnapshot,
   type PendingOnboardingProfile,
+  type RuntimeDiagnosticsSnapshot,
+  type StoredPermissionPolicy,
+  type StoredPeerPolicy,
   type StoredExtensionProfile
 } from '@/extension/protocol';
+import { DEFAULT_RELAYS, normalizeRelays } from '@/lib/igloo';
 
 export type AppRoute = 'onboarding' | 'signer';
 
@@ -30,9 +46,8 @@ export type OnboardingFailureDetail = {
 type AppState = {
   route: AppRoute;
   isHydratingProfile: boolean;
-  appState: ExtensionAppState | null;
+  appState: ExtensionStateSnapshot | null;
   profile?: StoredExtensionProfile;
-  setProfile: (s?: StoredExtensionProfile) => void;
   lastOnboardingFailure: OnboardingFailureDetail | null;
   clearOnboardingFailure: () => void;
   saveProfile: (s: StoredExtensionProfile) => Promise<void>;
@@ -50,31 +65,63 @@ type AppState = {
   recoverProfile: (packageText: string, password: string) => Promise<StoredExtensionProfile>;
   activateProfile: (profileId: string) => Promise<void>;
   unlockProfile: (profileId: string, password: string) => Promise<void>;
-  logout: () => void;
-  wipeAllData: () => Promise<void>;
+  deleteProfile: (profileId: string) => Promise<void>;
+  startRuntime: () => Promise<void>;
+  stopRuntime: () => Promise<void>;
+  reloadRuntime: () => Promise<void>;
+  refreshRuntimePeers: () => Promise<void>;
+  loadRuntimeDiagnostics: () => Promise<RuntimeDiagnosticsSnapshot>;
+  prepareRuntime: <T = unknown>(operation: 'sign' | 'ecdh') => Promise<T>;
+  updatePeerPolicy: (
+    pubkey: string,
+    patch: {
+      direction: 'request' | 'respond';
+      method: 'ping' | 'onboard' | 'sign' | 'ecdh';
+      value: 'unset' | 'allow' | 'deny';
+    }
+  ) => Promise<StoredPeerPolicy[]>;
+  clearPeerPolicyOverrides: () => Promise<StoredPeerPolicy[]>;
+  revokeSitePermission: (policy: StoredPermissionPolicy) => Promise<void>;
+  clearSitePermissions: () => Promise<void>;
+  logout: () => Promise<void>;
+  copyProfilePackage: (format: 'bfprofile' | 'bfshare', password: string) => Promise<string>;
 };
 
 const Store = createContext<AppState | null>(null);
 
-function profileFailureFromState(state: ExtensionAppState | null): OnboardingFailureDetail | null {
+function profileFailureFromState(state: ExtensionStateSnapshot | null): OnboardingFailureDetail | null {
   const message = state?.lifecycle.onboarding.lastError?.message;
   return message ? { message } : null;
 }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [appState, setAppState] = useState<ExtensionAppState | null>(null);
+  const [appState, setAppState] = useState<ExtensionStateSnapshot | null>(null);
   const [isHydratingProfile, setIsHydratingProfile] = useState(true);
   const [lastOnboardingFailure, setLastOnboardingFailure] = useState<OnboardingFailureDetail | null>(
     null
   );
   const stateVersionRef = React.useRef(0);
 
-  const applyAppState = React.useCallback((next: ExtensionAppState) => {
+  const applyAppState = React.useCallback((next: ExtensionStateSnapshot) => {
     stateVersionRef.current += 1;
     setAppState(next);
     setLastOnboardingFailure(profileFailureFromState(next));
     setIsHydratingProfile(false);
   }, []);
+
+  const refreshAppState = React.useCallback(async () => {
+    const next = await fetchExtensionState();
+    applyAppState(next);
+    return next;
+  }, [applyAppState]);
+
+  const refreshAppStateQuietly = React.useCallback(async () => {
+    const next = await fetchExtensionState().catch(() => null);
+    if (next) {
+      applyAppState(next);
+    }
+    return next;
+  }, [applyAppState]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -85,10 +132,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         message &&
         typeof message === 'object' &&
         'type' in message &&
-        message.type === MESSAGE_TYPE.APP_STATE_UPDATED &&
+        message.type === EVENT_TYPE.STATE_CHANGED &&
         'state' in message
       ) {
-        const next = message.state as ExtensionAppState;
+        const next = message.state as ExtensionStateSnapshot;
         if (!cancelled) {
           applyAppState(next);
         }
@@ -96,7 +143,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
 
     chromeApi?.runtime?.onMessage?.addListener?.(listener);
-    void fetchExtensionAppState()
+    void fetchExtensionState()
       .then((next) => {
         if (cancelled) return;
         if (stateVersionRef.current !== bootstrapVersion) {
@@ -116,45 +163,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
   }, [applyAppState]);
 
-  React.useEffect(() => {
-    if (appState?.configured) {
-      return;
-    }
-    let cancelled = false;
-    const handle = window.setInterval(() => {
-      void fetchExtensionAppState()
-        .then((next) => {
-          if (cancelled) return;
-          if (
-            next.configured ||
-            next.lifecycle.activation.stage !== 'idle' ||
-            next.lifecycle.onboarding.stage !== 'idle'
-          ) {
-            applyAppState(next);
-          }
-        })
-        .catch(() => undefined);
-    }, 1000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(handle);
-    };
-  }, [appState?.configured, applyAppState]);
-
   const route: AppRoute = appState?.configured ? 'signer' : 'onboarding';
   const profile = appState?.profile ?? undefined;
 
   async function saveProfile(profileInput: StoredExtensionProfile) {
-    const saved = await saveExtensionProfile(profileInput);
-    const next = await fetchExtensionAppState().catch(
-      () =>
-        ({
-          ...appState,
-          configured: true,
-          profile: saved
-        }) as ExtensionAppState
-    );
-    applyAppState(next);
+    const previousRelays = normalizeRelays(profile?.relays ?? DEFAULT_RELAYS).relays;
+    const nextRelays = normalizeRelays(profileInput.relays?.length ? profileInput.relays : DEFAULT_RELAYS).relays;
+    const relayChanged = JSON.stringify(previousRelays) !== JSON.stringify(nextRelays);
+    await saveExtensionProfile(profileInput);
+    if (appState?.runtime.phase === 'ready' || appState?.runtime.phase === 'degraded') {
+      await updateRuntimeConfig(profileInput.signerSettings ?? {}).catch(() => undefined);
+      if (relayChanged) {
+        await reloadRuntime();
+      }
+    }
+    await refreshAppStateQuietly();
   }
 
   async function connectOnboarding(input: StartOnboardingInput) {
@@ -162,10 +185,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     try {
       return await startOnboarding(input);
     } catch (error) {
-      const next = await fetchExtensionAppState().catch(() => null);
-      if (next) {
-        applyAppState(next);
-      }
+      await refreshAppStateQuietly();
       throw error;
     }
   }
@@ -178,14 +198,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setLastOnboardingFailure(null);
     try {
       const profile = await completeOnboardingClient(pendingProfile, label, password);
-      const next = await fetchExtensionAppState();
-      applyAppState(next);
+      await refreshAppState();
       return profile;
     } catch (error) {
-      const next = await fetchExtensionAppState().catch(() => null);
-      if (next) {
-        applyAppState(next);
-      }
+      await refreshAppStateQuietly();
       throw error;
     }
   }
@@ -199,41 +215,43 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       targetProfileId,
       pendingProfile
     });
-    const next = await fetchExtensionAppState();
-    applyAppState(next);
+    await refreshAppState();
     return profile;
   }
 
   async function importProfile(packageText: string, password: string) {
     setLastOnboardingFailure(null);
     const profile = await importBfprofile(packageText, password);
-    const next = await fetchExtensionAppState();
-    applyAppState(next);
+    await refreshAppState();
     return profile;
   }
 
   async function recoverProfile(packageText: string, password: string) {
     setLastOnboardingFailure(null);
     const profile = await recoverBfshare(packageText, password);
-    const next = await fetchExtensionAppState();
-    applyAppState(next);
+    await refreshAppState();
     return profile;
   }
 
   async function activateProfile(profileId: string) {
     await activateExtensionProfile(profileId);
-    const next = await fetchExtensionAppState();
-    applyAppState(next);
+    await refreshAppState();
   }
 
   async function unlockProfile(profileId: string, password: string) {
     await unlockExtensionProfile(profileId, password);
-    const next = await fetchExtensionAppState();
-    applyAppState(next);
+    await refreshAppState();
   }
 
-  function logout() {
-    void sendRuntimeControl('stopRuntime').catch(() => undefined);
+  async function deleteProfile(profileId: string) {
+    await deleteExtensionProfile(profileId);
+    await refreshAppState();
+  }
+
+  async function logout() {
+    await stopRuntime().catch(() => undefined);
+    await logoutExtensionProfile().catch(() => undefined);
+    stateVersionRef.current += 1;
     setAppState((current) =>
       current
         ? {
@@ -244,17 +262,69 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           }
         : current
     );
-    void clearExtensionProfileState().catch(() => undefined);
     setLastOnboardingFailure(null);
     setIsHydratingProfile(false);
   }
 
-  async function wipeAllData() {
-    await sendRuntimeControl('wipeRuntime').catch(() => undefined);
-    await sendRuntimeControl('stopRuntime').catch(() => undefined);
-    await clearExtensionProfileState();
-    const next = await fetchExtensionAppState();
-    applyAppState(next);
+  async function startRuntimeAction() {
+    await startRuntime();
+    await refreshAppStateQuietly();
+  }
+
+  async function stopRuntimeAction() {
+    await stopRuntime();
+    await refreshAppStateQuietly();
+  }
+
+  async function reloadRuntimeAction() {
+    await reloadRuntime();
+    await refreshAppStateQuietly();
+  }
+
+  async function refreshRuntimePeersAction() {
+    await refreshRuntimePeers();
+    await refreshAppStateQuietly();
+  }
+
+  async function loadRuntimeDiagnosticsAction() {
+    return await fetchRuntimeDiagnostics();
+  }
+
+  async function prepareRuntimeAction<T = unknown>(operation: 'sign' | 'ecdh') {
+    return await prepareRuntime<T>(operation);
+  }
+
+  async function updatePeerPolicyAction(
+    pubkey: string,
+    patch: {
+      direction: 'request' | 'respond';
+      method: 'ping' | 'onboard' | 'sign' | 'ecdh';
+      value: 'unset' | 'allow' | 'deny';
+    }
+  ) {
+    const result = await updateRuntimePeerPolicy(pubkey, patch);
+    await refreshAppStateQuietly();
+    return result;
+  }
+
+  async function clearPeerPolicyOverridesAction() {
+    const result = await clearRuntimePeerPolicyOverrides();
+    await refreshAppStateQuietly();
+    return result;
+  }
+
+  async function revokeSitePermissionAction(policy: StoredPermissionPolicy) {
+    await revokePermissionPolicy(policy);
+    await refreshAppStateQuietly();
+  }
+
+  async function clearSitePermissionsAction() {
+    await clearPermissionPolicies();
+    await refreshAppStateQuietly();
+  }
+
+  async function copyProfilePackageAction(format: 'bfprofile' | 'bfshare', password: string) {
+    return await exportExtensionProfilePackage(format, password);
   }
 
   const value = useMemo<AppState>(
@@ -263,18 +333,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       isHydratingProfile,
       appState,
       profile,
-      setProfile: (next) => {
-        stateVersionRef.current += 1;
-        setAppState((current) =>
-          current
-            ? {
-                ...current,
-                configured: !!next,
-                profile: next ?? null
-              }
-            : current
-        );
-      },
       lastOnboardingFailure,
       clearOnboardingFailure: () => setLastOnboardingFailure(null),
       saveProfile,
@@ -285,8 +343,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       recoverProfile,
       activateProfile,
       unlockProfile,
+      deleteProfile,
+      startRuntime: startRuntimeAction,
+      stopRuntime: stopRuntimeAction,
+      reloadRuntime: reloadRuntimeAction,
+      refreshRuntimePeers: refreshRuntimePeersAction,
+      loadRuntimeDiagnostics: loadRuntimeDiagnosticsAction,
+      prepareRuntime: prepareRuntimeAction,
+      updatePeerPolicy: updatePeerPolicyAction,
+      clearPeerPolicyOverrides: clearPeerPolicyOverridesAction,
+      revokeSitePermission: revokeSitePermissionAction,
+      clearSitePermissions: clearSitePermissionsAction,
       logout,
-      wipeAllData
+      copyProfilePackage: copyProfilePackageAction
     }),
     [route, isHydratingProfile, appState, profile, lastOnboardingFailure]
   );

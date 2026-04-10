@@ -1,12 +1,15 @@
 import * as React from 'react';
-import { OperatorPermissionsPanel } from 'igloo-ui';
 import {
-  clearRuntimePeerPolicyOverrides,
-  sendRuntimeControl,
-  updateRuntimePeerPolicy
-} from '@/extension/client';
-import { clearPermissionPolicies, removePermissionPolicy } from '@/extension/storage';
+  OperatorPermissionsPanel,
+  type OperatorMethodPermissionOverride,
+  type OperatorPolicyOverrideValue,
+} from 'igloo-ui';
 import type { StoredPermissionPolicy } from '@/extension/protocol';
+import {
+  normalizeStoredPeerPolicies,
+  peerAllowsAllRequests,
+  peerAllowsAllResponses,
+} from '@/lib/peer-policy';
 import { useStore } from '@/lib/store';
 
 function formatTimestamp(value: number) {
@@ -18,7 +21,14 @@ function formatMethod(value: string) {
 }
 
 export function PermissionsPanel() {
-  const { appState } = useStore();
+  const {
+    appState,
+    clearPeerPolicyOverrides,
+    clearSitePermissions,
+    refreshRuntimePeers,
+    revokeSitePermission,
+    updatePeerPolicy,
+  } = useStore();
   const [sitePolicies, setSitePolicies] = React.useState<StoredPermissionPolicy[]>(appState?.permissionPolicies ?? []);
   const [loading, setLoading] = React.useState(false);
 
@@ -29,16 +39,16 @@ export function PermissionsPanel() {
   const refresh = React.useCallback(async () => {
     setLoading(true);
     try {
-      await sendRuntimeControl('refreshAllPeers');
+      await refreshRuntimePeers();
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [refreshRuntimePeers]);
 
   const handleRevoke = React.useCallback(async (policy: StoredPermissionPolicy) => {
     setLoading(true);
     try {
-      await removePermissionPolicy(policy);
+      await revokeSitePermission(policy);
       setSitePolicies((current) =>
         current.filter(
           (entry) =>
@@ -54,17 +64,17 @@ export function PermissionsPanel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [revokeSitePermission]);
 
   const handleClearAll = React.useCallback(async () => {
     setLoading(true);
     try {
-      await clearPermissionPolicies();
+      await clearSitePermissions();
       setSitePolicies([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearSitePermissions]);
 
   const handlePeerPolicyChange = React.useCallback(
     async (
@@ -75,7 +85,7 @@ export function PermissionsPanel() {
     ) => {
       setLoading(true);
       try {
-        await updateRuntimePeerPolicy(pubkey, {
+        await updatePeerPolicy(pubkey, {
           direction,
           method,
           value
@@ -84,19 +94,22 @@ export function PermissionsPanel() {
         setLoading(false);
       }
     },
-    []
+    [updatePeerPolicy]
   );
 
   const handleClearPeerOverrides = React.useCallback(async () => {
     setLoading(true);
     try {
-      await clearRuntimePeerPolicyOverrides();
+      await clearPeerPolicyOverrides();
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearPeerPolicyOverrides]);
 
-  const peerPolicies = appState?.runtime.summary?.peer_permission_states ?? [];
+  const peerPolicies = React.useMemo(
+    () => normalizeStoredPeerPolicies(appState?.runtime.summary?.peer_permission_states),
+    [appState?.runtime.summary?.peer_permission_states]
+  );
   const runtimeActive = appState?.runtime.phase === 'ready' || appState?.runtime.phase === 'degraded';
 
   return (
@@ -111,16 +124,8 @@ export function PermissionsPanel() {
       }))}
       peerPermissions={runtimeActive ? peerPolicies.map((policy) => ({
         pubkey: policy.pubkey,
-        send:
-          policy.effectivePolicy.request.ping &&
-          policy.effectivePolicy.request.onboard &&
-          policy.effectivePolicy.request.sign &&
-          policy.effectivePolicy.request.ecdh,
-        receive:
-          policy.effectivePolicy.respond.ping &&
-          policy.effectivePolicy.respond.onboard &&
-          policy.effectivePolicy.respond.sign &&
-          policy.effectivePolicy.respond.ecdh,
+        send: peerAllowsAllRequests(policy),
+        receive: peerAllowsAllResponses(policy),
       })) : []}
       peerPermissionStates={runtimeActive ? peerPolicies.map((policy) => ({
         pubkey: policy.pubkey,
@@ -140,7 +145,12 @@ export function PermissionsPanel() {
       onClearAllPeerPermissions={runtimeActive ? () => void handleClearPeerOverrides() : undefined}
       onPeerPermissionOverrideChange={
         runtimeActive
-          ? (pubkey, direction, method, value) =>
+          ? (
+              pubkey: string,
+              direction: 'request' | 'respond',
+              method: keyof OperatorMethodPermissionOverride,
+              value: OperatorPolicyOverrideValue
+            ) =>
               void handlePeerPolicyChange(pubkey, direction, method, value)
           : undefined
       }

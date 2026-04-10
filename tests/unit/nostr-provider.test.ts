@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { EXTENSION_SOURCE, MESSAGE_TYPE } from '@/extension/protocol';
+import { EXTENSION_SOURCE, PROVIDER_METHOD } from '@/extension/protocol';
 
 describe('nostr provider bridge', () => {
   beforeEach(() => {
@@ -16,7 +16,7 @@ describe('nostr provider bridge', () => {
 
     expect(postMessage).toHaveBeenCalledOnce();
     const payload = postMessage.mock.calls.at(-1)?.[0] as { id: string; type: string };
-    expect(payload.type).toBe(MESSAGE_TYPE.NOSTR_GET_PUBLIC_KEY);
+    expect(payload.type).toBe(PROVIDER_METHOD.GET_PUBLIC_KEY);
 
     window.dispatchEvent(
       new MessageEvent('message', {

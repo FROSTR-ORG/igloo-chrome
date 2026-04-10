@@ -13,7 +13,12 @@ const targetDir = path.resolve(chromeRoot, 'public/wasm');
 const expectedArtifacts = [
   'bifrost_bridge_wasm.js',
   'bifrost_bridge_wasm.d.ts',
-  'bifrost_bridge_wasm_bg.wasm'
+  'bifrost_bridge_wasm_bg.wasm',
+  'bifrost_bridge_wasm_loader.mjs',
+  'bifrost_profile_wasm.js',
+  'bifrost_profile_wasm.d.ts',
+  'bifrost_profile_wasm_bg.wasm',
+  'bifrost_profile_wasm_loader.mjs'
 ];
 
 for (const artifact of expectedArtifacts) {
@@ -35,4 +40,4 @@ for (const entry of await fs.readdir(sourceDir)) {
   await fs.copyFile(sourcePath, targetPath);
 }
 
-console.log(`ok: synced bridge wasm assets to ${targetDir}`);
+console.log(`ok: synced browser wasm assets to ${targetDir}`);

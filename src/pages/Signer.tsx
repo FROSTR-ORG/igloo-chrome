@@ -1,52 +1,23 @@
 import * as React from 'react';
 import {
   AppHeader,
-  Button,
   ContentCard,
   OperatorSignerPanel,
   PageLayout,
   type LogEntry,
   type PeerPolicy,
 } from 'igloo-ui';
-import { getChromeApi } from '@/extension/chrome';
-import { MESSAGE_TYPE, type StoredPeerPolicy } from '@/extension/protocol';
+import { type RuntimeStatusSummary, type StoredPeerPolicy } from '@/extension/protocol';
 import { useStore } from '@/lib/store';
 import { deriveRuntimePresentation } from '@/lib/runtime-activation';
-import {
-  fetchExtensionStatus,
-  fetchRuntimeDiagnostics,
-  sendRuntimeControl,
-  type ExtensionStatusSnapshot,
-} from '@/extension/client';
 import { createLogger, type ObservabilityEvent } from '@/lib/observability';
+import {
+  normalizeStoredPeerPolicies,
+  peerAllowsAllRequests,
+  peerAllowsAllResponses,
+} from '@/lib/peer-policy';
 
 const logger = createLogger('igloo.signer-page');
-
-function initializePeers(savedPolicies: StoredPeerPolicy[] = []): PeerPolicy[] {
-  return savedPolicies.flatMap((saved, index) => {
-    const effectivePolicy = saved?.effectivePolicy;
-    if (!saved?.pubkey || !effectivePolicy?.request || !effectivePolicy?.respond) {
-      return [];
-    }
-    return [{
-      alias: `Peer ${index + 1}`,
-      pubkey: saved.pubkey,
-      send:
-        effectivePolicy.request.ping &&
-        effectivePolicy.request.onboard &&
-        effectivePolicy.request.sign &&
-        effectivePolicy.request.ecdh,
-      receive:
-        effectivePolicy.respond.ping &&
-        effectivePolicy.respond.onboard &&
-        effectivePolicy.respond.sign &&
-        effectivePolicy.respond.ecdh,
-      state: 'offline',
-      statusLabel: 'offline',
-      lastSeen: null,
-    }];
-  });
-}
 
 function toLogEntry(event: ObservabilityEvent): LogEntry {
   return {
@@ -58,33 +29,22 @@ function toLogEntry(event: ObservabilityEvent): LogEntry {
   };
 }
 
-function derivePeers(status: ExtensionStatusSnapshot, savedPolicies: StoredPeerPolicy[]): PeerPolicy[] {
+function derivePeers(summary: RuntimeStatusSummary | null, savedPolicies: StoredPeerPolicy[]): PeerPolicy[] {
   const base = new Map<string, PeerPolicy>();
 
-  for (const [index, saved] of savedPolicies.entries()) {
-    if (!saved?.pubkey || !saved.effectivePolicy?.request || !saved.effectivePolicy?.respond) {
-      continue;
-    }
+  for (const [index, saved] of normalizeStoredPeerPolicies(savedPolicies).entries()) {
     base.set(saved.pubkey.toLowerCase(), {
       alias: `Peer ${index + 1}`,
       pubkey: saved.pubkey.toLowerCase(),
-      send:
-        saved.effectivePolicy.request.ping &&
-        saved.effectivePolicy.request.onboard &&
-        saved.effectivePolicy.request.sign &&
-        saved.effectivePolicy.request.ecdh,
-      receive:
-        saved.effectivePolicy.respond.ping &&
-        saved.effectivePolicy.respond.onboard &&
-        saved.effectivePolicy.respond.sign &&
-        saved.effectivePolicy.respond.ecdh,
+      send: peerAllowsAllRequests(saved),
+      receive: peerAllowsAllResponses(saved),
       state: 'offline',
       statusLabel: 'offline',
       lastSeen: null,
     });
   }
 
-  for (const [index, peer] of (status.runtimeDetails.summary?.metadata.peers ?? []).entries()) {
+  for (const [index, peer] of (summary?.metadata.peers ?? []).entries()) {
     const normalized = peer.toLowerCase();
     const existing = base.get(normalized);
     base.set(normalized, {
@@ -98,7 +58,7 @@ function derivePeers(status: ExtensionStatusSnapshot, savedPolicies: StoredPeerP
     });
   }
 
-  for (const peer of status.runtimeDetails.peerStatus) {
+  for (const peer of summary?.peers ?? []) {
     const normalized = peer.pubkey.toLowerCase();
     const existing = base.get(normalized);
     base.set(normalized, {
@@ -120,110 +80,58 @@ function derivePeers(status: ExtensionStatusSnapshot, savedPolicies: StoredPeerP
 }
 
 export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
-  const { appState, profile } = useStore();
+  const { appState, loadRuntimeDiagnostics, profile, refreshRuntimePeers, startRuntime, stopRuntime } = useStore();
   const [copiedField, setCopiedField] = React.useState<'group' | 'share' | null>(null);
-  const [peers, setPeers] = React.useState<PeerPolicy[]>(
-    () => initializePeers(appState?.runtime.summary?.peer_permission_states)
-  );
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
-  const [runtimeStatus, setRuntimeStatus] = React.useState<'stopped' | 'connecting' | 'running'>('stopped');
-  const [runtimeError, setRuntimeError] = React.useState<string | null>(null);
-  const [refreshTick, setRefreshTick] = React.useState(0);
-  const [status, setStatus] = React.useState<ExtensionStatusSnapshot | null>(null);
-
-  const refresh = React.useCallback(async () => {
-    try {
-      const [nextStatus, diagnostics] = await Promise.all([
-        fetchExtensionStatus(),
-        fetchRuntimeDiagnostics(),
-      ]);
-
-      setStatus(nextStatus);
-      const presentation = deriveRuntimePresentation(
-        nextStatus.lifecycle.activation.stage,
-        nextStatus.runtime,
-        nextStatus.lifecycle.activation.lastError?.message ?? nextStatus.runtimeDetails.snapshotError ?? null,
-      );
-      setRuntimeStatus(presentation.runtimeState);
-      setRuntimeError(presentation.runtimeError);
-      setPeers(derivePeers(nextStatus, nextStatus.runtimeDetails.summary?.peer_permission_states ?? []));
-      setLogs(diagnostics.diagnostics.map(toLogEntry));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setRuntimeError(message);
-    }
-  }, [appState?.runtime.summary?.peer_permission_states]);
+  const [actionError, setActionError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    void refresh();
-    const chromeApi = getChromeApi();
-    const runtimeMessageApi = chromeApi?.runtime?.onMessage as
-      | {
-          addListener?: (listener: (message: unknown) => void) => void;
-          removeListener?: (listener: (message: unknown) => void) => void;
-        }
-      | undefined;
-    const messageListener = (message: unknown) => {
-      if (
-        message &&
-        typeof message === 'object' &&
-        'type' in message &&
-        message.type === MESSAGE_TYPE.RUNTIME_STATUS_UPDATED
-      ) {
-        void refresh();
-      }
-    };
-    runtimeMessageApi?.addListener?.(messageListener);
-    const handle = window.setInterval(() => {
-      void refresh();
-    }, 15000);
-    return () => {
-      runtimeMessageApi?.removeListener?.(messageListener);
-      window.clearInterval(handle);
-    };
-  }, [refresh, refreshTick]);
+    void loadRuntimeDiagnostics()
+      .then((diagnostics) => {
+        setLogs(diagnostics.diagnostics.map(toLogEntry));
+      })
+      .catch((error) => {
+        setActionError(error instanceof Error ? error.message : String(error));
+      });
+  }, [
+    appState?.runtime.phase,
+    appState?.lifecycle.activation.updatedAt,
+    appState?.lifecycle.onboarding.updatedAt,
+  ]);
 
   const handleStart = async () => {
     if (!profile) return;
-    setRuntimeStatus('connecting');
-    setRuntimeError(null);
-
+    setActionError(null);
     try {
-      await sendRuntimeControl('ensureConfiguredRuntime');
-      setRefreshTick((value) => value + 1);
-      await refresh();
+      await startRuntime();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setRuntimeError(message);
-      setRuntimeStatus('stopped');
+      setActionError(error instanceof Error ? error.message : String(error));
     }
   };
 
   const handleStop = async () => {
+    setActionError(null);
     try {
-      await sendRuntimeControl('stopRuntime');
-      setRefreshTick((value) => value + 1);
-      await refresh();
+      await stopRuntime();
     } catch (error) {
-      setRuntimeError(error instanceof Error ? error.message : String(error));
+      setActionError(error instanceof Error ? error.message : String(error));
     }
   };
 
   const handleRefreshPeers = async () => {
+    setActionError(null);
     try {
-      await sendRuntimeControl('refreshAllPeers');
-      setRefreshTick((value) => value + 1);
-      await refresh();
+      await refreshRuntimePeers();
     } catch (error) {
-      setRuntimeError(error instanceof Error ? error.message : String(error));
+      setActionError(error instanceof Error ? error.message : String(error));
     }
   };
 
   const handleCopy = async (field: 'group' | 'share') => {
     const value =
       field === 'group'
-        ? status?.publicKey ?? profile?.groupPublicKey
-        : status?.sharePublicKey ?? profile?.sharePublicKey;
+        ? appState?.runtime.metadata?.group_public_key ?? profile?.groupPublicKey
+        : appState?.runtime.metadata?.share_public_key ?? profile?.sharePublicKey;
     if (!value) return;
     try {
       await navigator.clipboard.writeText(value);
@@ -237,17 +145,25 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
     }
   };
 
-  const isSignerRunning = runtimeStatus === 'running';
-  const isConnecting = runtimeStatus === 'connecting';
-  const activationStage = status?.lifecycle.activation.stage ?? 'idle';
+  const peers = React.useMemo(
+    () => derivePeers(appState?.runtime.summary ?? null, appState?.runtime.summary?.peer_permission_states ?? []),
+    [appState?.runtime.summary]
+  );
+  const activationStage = appState?.lifecycle.activation.stage ?? 'idle';
+  const activationError = appState?.lifecycle.activation.lastError ?? null;
   const presentation = deriveRuntimePresentation(
     activationStage,
-    status?.runtime ?? 'cold',
-    runtimeError,
+    appState?.runtime.phase ?? 'cold',
+    actionError ?? activationError?.message ?? appState?.runtime.lastError ?? null,
   );
+  const isSignerRunning = presentation.runtimeState === 'running';
+  const isConnecting = presentation.runtimeState === 'connecting';
   const runtimeControlLabel = presentation.runtimeControlLabel;
   const runtimeSummaryLabel = presentation.runtimeSummaryLabel;
-  const displayRuntimeError = presentation.runtimeError;
+  const displayRuntimeError =
+    !actionError && activationError?.code === 'runtime_unavailable'
+      ? `Profile saved, signer unavailable. ${activationError.message}`
+      : presentation.runtimeError;
 
   if (!profile) {
     const emptyState = (
@@ -268,15 +184,15 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
         groupPublicKey: profile.groupPublicKey,
         sharePublicKey: profile.sharePublicKey,
       }}
-      introMessage="The signer runtime is hosted by the extension background and offscreen document. This page is an operator console over that runtime."
-      runtimeState={runtimeStatus}
+      introMessage="The signer runtime is hosted by the extension background service worker. This page is an operator console over that runtime."
+      runtimeState={presentation.runtimeState}
       runtimeControlLabel={runtimeControlLabel}
       runtimeSummaryLabel={runtimeSummaryLabel}
-      activationStage={status?.lifecycle.activation.stage ?? null}
-      activationUpdatedAt={status?.lifecycle.activation.updatedAt ?? null}
+      activationStage={appState?.lifecycle.activation.stage ?? null}
+      activationUpdatedAt={appState?.lifecycle.activation.updatedAt ?? null}
       runtimeError={displayRuntimeError}
-      sharePublicKey={status?.sharePublicKey ?? profile.sharePublicKey ?? ''}
-      groupPublicKey={status?.publicKey ?? profile.groupPublicKey ?? ''}
+      sharePublicKey={appState?.runtime.metadata?.share_public_key ?? profile.sharePublicKey ?? ''}
+      groupPublicKey={appState?.runtime.metadata?.group_public_key ?? profile.groupPublicKey ?? ''}
       copiedField={copiedField}
       onCopyGroupKey={() => void handleCopy('group')}
       onCopyShareKey={() => void handleCopy('share')}
@@ -286,7 +202,7 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
       refreshPeersDisabled={!isSignerRunning}
       peers={peers}
       pendingOperations={
-        status?.runtimeDetails.summary?.pending_operations.map((operation) => ({
+        appState?.runtime.pendingOperations.map((operation) => ({
           request_id: operation.request_id,
           op_type: operation.op_type,
           threshold: operation.threshold,

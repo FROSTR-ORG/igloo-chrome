@@ -15,7 +15,7 @@ This project is a Chrome MV3 signing-device extension for the FROSTR protocol. C
 
 ## Setup
 1. `npm install`
-2. `npm run build:bridge-wasm`
+2. `npm run build:browser-wasm`
 3. `npm run build`
 
 ## Development workflow
@@ -23,7 +23,7 @@ This project is a Chrome MV3 signing-device extension for the FROSTR protocol. C
 2. Run `bunx tsc --noEmit`.
 3. Run `npm run build`.
 4. Run `npm run test:e2e`.
-5. If the change touches the Rust/WASM bridge, rerun `npm run build:bridge-wasm` before the build and tests.
+5. If the change touches the Rust/WASM browser packages, rerun `npm run build:browser-wasm` before the build and tests.
 
 ## Design expectations
 - Keep the background service worker thin.

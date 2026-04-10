@@ -16,7 +16,7 @@ Security-sensitive areas include:
 - provider permission enforcement
 - signer/runtime state handling
 - profile storage and snapshot persistence
-- message routing between content script, background, prompt, and offscreen runtime
+- message routing between content script, background, prompt, and the background-owned runtime
 - WASM bridge boundaries
 
 ## Handling expectations

@@ -1,110 +1,110 @@
 import { getChromeApi } from '@/extension/chrome';
 import {
-  MESSAGE_TYPE,
-  type ExtensionAppState,
-  type LifecycleStatusSnapshot,
-  type LifecycleTransitionRecord,
+  COMMAND_TYPE,
+  type DiagnosticsGetMessage,
+  type ExtensionCommand,
+  type ExtensionCommandResult,
+  type ExtensionMessageResponse,
+  type ExtensionStateSnapshot,
+  type OnboardingCompleteMessage,
+  type OnboardingStartMessage,
+  type PermissionsClearAllMessage,
+  type PermissionsRevokeMessage,
   type PolicyOverrideValue,
-  type RuntimeControlMessage,
-  type RuntimeLifecycleStatus,
-  type RuntimeMetadata,
-  type RuntimePeerStatus,
+  type ProfilesActivateMessage,
+  type ProfilesDeleteMessage,
+  type ProfilesExportPackageMessage,
+  type ProfilesImportMessage,
+  type ProfilesLogoutMessage,
+  type ProfilesRecoverMessage,
+  type ProfilesSaveMessage,
+  type ProfilesUnlockMessage,
+  type RotationCompleteMessage,
+  type RuntimeConfigGetMessage,
+  type RuntimeConfigUpdateMessage,
+  type RuntimeDiagnosticsSnapshot,
+  type RuntimePeerPolicyClearOverridesMessage,
+  type RuntimePeerPolicyUpdateMessage,
+  type RuntimePrepareMessage,
+  type RuntimePrepareOperation,
+  type RuntimeStartMessage,
+  type RuntimeStopMessage,
+  type RuntimeReloadMessage,
+  type RuntimeRefreshPeersMessage,
   type StoredPeerPolicy,
-  type RuntimePendingOperation,
-  type RuntimePhase,
-  type RuntimeReadiness,
-  type RuntimeSnapshotDetails,
-  type RuntimeStatusDetails,
-  type RuntimeStatusSummary,
+  type StoredPermissionPolicy,
+  type StateGetMessage,
   type StoredExtensionProfile,
-  type PendingOnboardingProfile
+  type PendingOnboardingProfile,
+  type UiOpenDashboardMessage
 } from '@/extension/protocol';
-import type { ObservabilityEvent } from '@/lib/observability';
 import type { SignerSettings } from '@/lib/signer-settings';
-
-export type ExtensionStatusSnapshot = {
-  configured: boolean;
-  groupName: string | null;
-  publicKey: string | null;
-  sharePublicKey: string | null;
-  relays: string[];
-  runtime: RuntimePhase;
-  pendingPrompts: number;
-  lifecycle: LifecycleStatusSnapshot;
-  runtimeDetails: {
-    status: RuntimeStatusDetails | null;
-    summary: RuntimeStatusSummary | null;
-    snapshot: RuntimeSnapshotDetails | null;
-    snapshotError: string | null;
-    peerStatus: RuntimePeerStatus[];
-    metadata: RuntimeMetadata | null;
-    readiness?: RuntimeReadiness | null;
-    lifecycle: RuntimeLifecycleStatus;
-  };
-};
-
-export type RuntimeDiagnosticsSnapshot = {
-  runtime: RuntimePhase;
-  diagnostics: ObservabilityEvent[];
-  dropped: number;
-  runtimeStatus?: RuntimeStatusSummary | null;
-  lifecycle: LifecycleStatusSnapshot;
-  lifecycleHistory: LifecycleTransitionRecord[];
-};
 
 export type StartOnboardingInput = {
   onboardPackage: string;
   onboardPassword: string;
 };
 
-async function sendMessage<T>(payload: Record<string, unknown>, fallback: string): Promise<T> {
+const LONG_TASK_PORT_TIMEOUT_MS = 20_000;
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return await Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(message)), timeoutMs);
+    })
+  ]);
+}
+
+async function sendMessage<T extends ExtensionCommand['type']>(
+  payload: Extract<ExtensionCommand, { type: T }>,
+  fallback: string
+): Promise<ExtensionCommandResult<T>> {
   const chromeApi = getChromeApi();
   if (!chromeApi?.runtime?.sendMessage) {
     throw new Error('Extension runtime messaging is unavailable');
   }
 
   const response = (await chromeApi.runtime.sendMessage(payload)) as
-    | { ok?: boolean; result?: T; error?: string }
+    | ExtensionMessageResponse<ExtensionCommandResult<T>>
     | undefined;
 
-  if (!response?.ok || response.result === undefined) {
+  if (!response?.ok) {
     throw new Error(response?.error || fallback);
   }
 
   return response.result;
 }
 
-export async function fetchExtensionAppState(): Promise<ExtensionAppState> {
-  return await sendMessage<ExtensionAppState>({
-    type: MESSAGE_TYPE.GET_APP_STATE
-  }, 'Failed to load extension app state');
-}
-
-export async function fetchExtensionStatus(): Promise<ExtensionStatusSnapshot> {
-  return await sendMessage<ExtensionStatusSnapshot>({
-    type: MESSAGE_TYPE.GET_STATUS
-  }, 'Failed to load extension status');
+export async function fetchExtensionState(): Promise<ExtensionStateSnapshot> {
+  const payload: StateGetMessage = {
+    type: COMMAND_TYPE.STATE_GET
+  };
+  return await sendMessage(payload, 'Failed to load extension state');
 }
 
 export async function fetchRuntimeDiagnostics(): Promise<RuntimeDiagnosticsSnapshot> {
-  return await sendMessage<RuntimeDiagnosticsSnapshot>({
-    type: MESSAGE_TYPE.GET_RUNTIME_DIAGNOSTICS
-  }, 'Failed to load runtime diagnostics');
+  const payload: DiagnosticsGetMessage = {
+    type: COMMAND_TYPE.DIAGNOSTICS_GET
+  };
+  return await sendMessage(payload, 'Failed to load runtime diagnostics');
 }
 
 export async function fetchRuntimeConfig(): Promise<SignerSettings> {
-  return await sendMessage<SignerSettings>({
-    type: MESSAGE_TYPE.GET_RUNTIME_CONFIG
-  }, 'Failed to read runtime config');
+  const payload: RuntimeConfigGetMessage = {
+    type: COMMAND_TYPE.RUNTIME_CONFIG_GET
+  };
+  return await sendMessage(payload, 'Failed to read runtime config');
 }
 
 export async function updateRuntimeConfig(
   settings: Partial<SignerSettings>
 ): Promise<SignerSettings> {
-  return await sendMessage<SignerSettings>({
-    type: MESSAGE_TYPE.UPDATE_RUNTIME_CONFIG,
+  const payload: RuntimeConfigUpdateMessage = {
+    type: COMMAND_TYPE.RUNTIME_CONFIG_UPDATE,
     settings
-  }, 'Failed to update runtime config');
+  };
+  return await sendMessage(payload, 'Failed to update runtime config');
 }
 
 export async function updateRuntimePeerPolicy(
@@ -115,26 +115,33 @@ export async function updateRuntimePeerPolicy(
     value: PolicyOverrideValue;
   }
 ): Promise<StoredPeerPolicy[]> {
-  return await sendMessage<StoredPeerPolicy[]>({
-    type: MESSAGE_TYPE.UPDATE_RUNTIME_PEER_POLICY,
+  const payload: RuntimePeerPolicyUpdateMessage = {
+    type: COMMAND_TYPE.RUNTIME_PEER_POLICY_UPDATE,
     pubkey,
     patch
-  }, 'Failed to update runtime peer policy');
+  };
+  return await sendMessage(payload, 'Failed to update runtime peer policy');
 }
 
 export async function clearRuntimePeerPolicyOverrides(): Promise<StoredPeerPolicy[]> {
-  return await sendMessage<StoredPeerPolicy[]>({
-    type: MESSAGE_TYPE.CLEAR_RUNTIME_PEER_POLICY_OVERRIDES
-  }, 'Failed to clear runtime peer policy overrides');
+  const payload: RuntimePeerPolicyClearOverridesMessage = {
+    type: COMMAND_TYPE.RUNTIME_PEER_POLICY_CLEAR_OVERRIDES
+  };
+  return await sendMessage(payload, 'Failed to clear runtime peer policy overrides');
 }
 
 export async function startOnboarding(
   input: StartOnboardingInput
 ): Promise<PendingOnboardingProfile> {
-  return await sendMessage<PendingOnboardingProfile>({
-    type: MESSAGE_TYPE.START_ONBOARDING,
-    input
-  }, 'Failed to start onboarding');
+  const payload: OnboardingStartMessage = {
+    type: COMMAND_TYPE.ONBOARDING_START,
+    input,
+  };
+  return await withTimeout(
+    sendMessage(payload, 'Failed to start onboarding'),
+    LONG_TASK_PORT_TIMEOUT_MS,
+    `Failed to start onboarding timed out after ${LONG_TASK_PORT_TIMEOUT_MS}ms`
+  );
 }
 
 export async function completeOnboarding(
@@ -142,87 +149,173 @@ export async function completeOnboarding(
   label: string,
   password: string
 ): Promise<StoredExtensionProfile> {
-  return await sendMessage<StoredExtensionProfile>({
-    type: MESSAGE_TYPE.COMPLETE_ONBOARDING,
+  const payload: OnboardingCompleteMessage = {
+    type: COMMAND_TYPE.ONBOARDING_COMPLETE,
     pendingProfile,
     label,
     password
-  }, 'Failed to complete onboarding');
+  };
+  return await sendMessage(payload, 'Failed to complete onboarding');
 }
 
 export async function completeRotationOnboarding(input: {
   targetProfileId: string;
   pendingProfile: PendingOnboardingProfile;
 }): Promise<StoredExtensionProfile> {
-  return await sendMessage<StoredExtensionProfile>({
-    type: MESSAGE_TYPE.COMPLETE_ROTATION_ONBOARDING,
+  const payload: RotationCompleteMessage = {
+    type: COMMAND_TYPE.ROTATION_COMPLETE,
     targetProfileId: input.targetProfileId,
     pendingProfile: input.pendingProfile
-  }, 'Failed to rotate key');
+  };
+  return await sendMessage(payload, 'Failed to rotate key');
 }
 
 export async function importBfprofile(
   packageText: string,
   password: string
 ): Promise<StoredExtensionProfile> {
-  return await sendMessage<StoredExtensionProfile>({
-    type: MESSAGE_TYPE.IMPORT_BFPROFILE,
+  const payload: ProfilesImportMessage = {
+    type: COMMAND_TYPE.PROFILES_IMPORT,
     packageText,
     password
-  }, 'Failed to import bfprofile');
+  };
+  return await sendMessage(payload, 'Failed to import bfprofile');
 }
 
 export async function recoverBfshare(
   packageText: string,
   password: string
 ): Promise<StoredExtensionProfile> {
-  return await sendMessage<StoredExtensionProfile>({
-    type: MESSAGE_TYPE.RECOVER_BFSHARE,
+  const payload: ProfilesRecoverMessage = {
+    type: COMMAND_TYPE.PROFILES_RECOVER,
     packageText,
     password
-  }, 'Failed to recover bfshare');
+  };
+  return await sendMessage(payload, 'Failed to recover bfshare');
+}
+
+export async function exportProfilePackage(
+  format: 'bfprofile' | 'bfshare',
+  password: string
+): Promise<string> {
+  const payload: ProfilesExportPackageMessage = {
+    type: COMMAND_TYPE.PROFILES_EXPORT_PACKAGE,
+    format,
+    password
+  };
+  const result = await sendMessage(payload, `Failed to export ${format}`);
+  return result.packageText;
 }
 
 export async function saveExtensionProfile(
   profile: StoredExtensionProfile
 ): Promise<StoredExtensionProfile> {
-  return await sendMessage<StoredExtensionProfile>({
-    type: MESSAGE_TYPE.SAVE_PROFILE,
+  const payload: ProfilesSaveMessage = {
+    type: COMMAND_TYPE.PROFILES_SAVE,
     profile
-  }, 'Failed to save extension profile');
+  };
+  return await sendMessage(payload, 'Failed to save extension profile');
 }
 
 export async function activateExtensionProfile(
   profileId: string
 ): Promise<StoredExtensionProfile> {
-  return await sendMessage<StoredExtensionProfile>({
-    type: MESSAGE_TYPE.ACTIVATE_PROFILE,
+  const payload: ProfilesActivateMessage = {
+    type: COMMAND_TYPE.PROFILES_ACTIVATE,
     profileId
-  }, 'Failed to activate extension profile');
+  };
+  return await sendMessage(payload, 'Failed to activate extension profile');
 }
 
 export async function unlockExtensionProfile(
   profileId: string,
   password: string
 ): Promise<StoredExtensionProfile> {
-  return await sendMessage<StoredExtensionProfile>({
-    type: MESSAGE_TYPE.UNLOCK_PROFILE,
+  const payload: ProfilesUnlockMessage = {
+    type: COMMAND_TYPE.PROFILES_UNLOCK,
     profileId,
     password
-  }, 'Failed to unlock extension profile');
+  };
+  return await sendMessage(payload, 'Failed to unlock extension profile');
 }
 
-export async function clearExtensionProfileState(): Promise<void> {
-  await sendMessage<boolean>({
-    type: MESSAGE_TYPE.CLEAR_PROFILE
-  }, 'Failed to clear extension profile');
+export async function deleteExtensionProfile(profileId: string): Promise<void> {
+  const payload: ProfilesDeleteMessage = {
+    type: COMMAND_TYPE.PROFILES_DELETE,
+    profileId,
+  };
+  await sendMessage(payload, 'Failed to delete extension profile');
 }
 
-export async function sendRuntimeControl(
-  action: RuntimeControlMessage['action']
-): Promise<void> {
-  await sendMessage<boolean>({
-    type: MESSAGE_TYPE.RUNTIME_CONTROL,
-    action
-  }, `Failed runtime control action: ${action}`);
+export async function logoutExtensionProfile(): Promise<void> {
+  const payload: ProfilesLogoutMessage = {
+    type: COMMAND_TYPE.PROFILES_LOGOUT
+  };
+  await sendMessage(payload, 'Failed to log out extension profile');
+}
+
+export async function startRuntime(): Promise<void> {
+  const payload: RuntimeStartMessage = {
+    type: COMMAND_TYPE.RUNTIME_START,
+  };
+  await sendMessage(payload, 'Failed to start signer runtime');
+}
+
+export async function stopRuntime(): Promise<void> {
+  const payload: RuntimeStopMessage = {
+    type: COMMAND_TYPE.RUNTIME_STOP,
+  };
+  await sendMessage(payload, 'Failed to stop signer runtime');
+}
+
+export async function reloadRuntime(): Promise<void> {
+  const payload: RuntimeReloadMessage = {
+    type: COMMAND_TYPE.RUNTIME_RELOAD,
+  };
+  await sendMessage(payload, 'Failed to reload signer runtime');
+}
+
+export async function refreshRuntimePeers(): Promise<void> {
+  const payload: RuntimeRefreshPeersMessage = {
+    type: COMMAND_TYPE.RUNTIME_REFRESH_PEERS,
+  };
+  await sendMessage(payload, 'Failed to refresh signer peers');
+}
+
+export async function prepareRuntime<T = RuntimePrepareMessage extends { type: infer K extends ExtensionCommand['type'] } ? ExtensionCommandResult<K> : never>(
+  operation: RuntimePrepareOperation
+) {
+  const payload: RuntimePrepareMessage = {
+    type: COMMAND_TYPE.RUNTIME_PREPARE,
+    operation,
+  };
+  return await sendMessage(payload, `Failed to prepare runtime for ${operation}`) as T;
+}
+
+export async function openDashboard(): Promise<void> {
+  const payload: UiOpenDashboardMessage = {
+    type: COMMAND_TYPE.UI_OPEN_DASHBOARD,
+  };
+  await sendMessage(payload, 'Failed to open extension dashboard');
+}
+
+export async function clearPermissionPolicies(): Promise<void> {
+  const payload: PermissionsClearAllMessage = {
+    type: COMMAND_TYPE.PERMISSIONS_CLEAR_ALL,
+  };
+  await sendMessage(payload, 'Failed to clear site permissions');
+}
+
+export async function revokePermissionPolicy(policy: {
+  host: StoredPermissionPolicy['host'];
+  type: StoredPermissionPolicy['type'];
+  allow: StoredPermissionPolicy['allow'];
+  createdAt: StoredPermissionPolicy['createdAt'];
+  kind?: StoredPermissionPolicy['kind'];
+}): Promise<void> {
+  const payload: PermissionsRevokeMessage = {
+    type: COMMAND_TYPE.PERMISSIONS_REVOKE,
+    policy,
+  };
+  await sendMessage(payload, 'Failed to revoke permission');
 }

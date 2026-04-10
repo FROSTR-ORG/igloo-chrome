@@ -114,15 +114,6 @@ async function writeHtmlPages() {
       htmlShell({ title: 'Igloo Permission Prompt', script: 'prompt.js' })
     ),
     fs.writeFile(
-      path.join(distDir, 'offscreen.html'),
-      htmlShell({
-        title: 'Igloo Offscreen Runtime',
-        script: 'offscreen.js',
-        rootId: '',
-        styles: false
-      })
-    ),
-    fs.writeFile(
       path.join(distDir, 'index.html'),
       htmlShell({ title: 'Igloo Chrome', script: 'options.js' })
     )
@@ -137,7 +128,6 @@ async function buildAll() {
   await bundleBrowserEntry('src/main.tsx', path.join(distDir, 'options.js'));
   await bundleBrowserEntry('src/popup.tsx', path.join(distDir, 'popup.js'));
   await bundleBrowserEntry('src/prompt.tsx', path.join(distDir, 'prompt.js'));
-  await bundleBrowserEntry('src/offscreen.ts', path.join(distDir, 'offscreen.js'));
   await bundleBrowserEntry('src/background.ts', path.join(distDir, 'background.js'));
   await bundleBrowserEntry('src/content-script.ts', path.join(distDir, 'content-script.js'), 'iife');
   await bundleBrowserEntry('src/nostr-provider.ts', path.join(distDir, 'nostr-provider.js'), 'iife');

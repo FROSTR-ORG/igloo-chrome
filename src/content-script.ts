@@ -1,5 +1,5 @@
 import { getChromeApi } from '@/extension/chrome';
-import { EXTENSION_SOURCE, MESSAGE_TYPE, isRecord } from '@/extension/protocol';
+import { COMMAND_TYPE, EXTENSION_SOURCE, isRecord } from '@/extension/protocol';
 
 function injectProviderScript() {
   const chromeApi = getChromeApi();
@@ -36,7 +36,7 @@ window.addEventListener('message', async (event) => {
 
   try {
     const result = (await chromeApi.runtime.sendMessage({
-      type: MESSAGE_TYPE.PROVIDER_REQUEST,
+      type: COMMAND_TYPE.PROVIDER_REQUEST,
       request: {
         id: event.data.id,
         type: event.data.type,

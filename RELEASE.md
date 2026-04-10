@@ -12,7 +12,7 @@ Produce a deterministic browser-loadable extension candidate from the current re
 
 ## Pre-release checks
 1. `bunx tsc --noEmit`
-2. `npm run build:bridge-wasm`
+2. `npm run build:browser-wasm`
 3. `npm run build`
 4. `npm run test:e2e`
 
@@ -46,7 +46,7 @@ Before handing off a candidate, verify:
 - `window.nostr.signEvent()` succeeds against a live responder
 - `window.nostr.nip44.encrypt/decrypt()` succeed against a live responder
 - permissions can be reviewed and revoked
-- offscreen/runtime survives teardown and relaunch scenarios
+- runtime restores cleanly after service-worker teardown and relaunch scenarios
 - status and peer views reflect signer-owned runtime state rather than extension-derived heuristics
 
 ## Candidate handoff

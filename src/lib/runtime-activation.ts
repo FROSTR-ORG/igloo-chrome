@@ -26,12 +26,7 @@ export function deriveRuntimePresentation(
   runtimeError: string | null,
 ): RuntimePresentation {
   const isConnecting =
-    activationStage === 'creating_offscreen' ||
-    activationStage === 'waiting_offscreen_ready' ||
-    activationStage === 'calling_offscreen' ||
-    activationStage === 'ensuring_offscreen' ||
-    activationStage === 'restoring_runtime' ||
-    activationStage === 'syncing_status';
+    activationStage === 'restoring_runtime';
   const runtimeState =
     isConnecting
       ? 'connecting'
@@ -47,21 +42,13 @@ export function deriveRuntimePresentation(
           ? 'Starting...'
           : 'Start Signer';
   const runtimeSummaryLabel =
-    activationStage === 'creating_offscreen'
-      ? 'Creating offscreen runtime'
-      : activationStage === 'waiting_offscreen_ready'
-        ? 'Waiting for offscreen runtime'
-        : activationStage === 'calling_offscreen'
-          ? 'Starting signer runtime'
-          : activationStage === 'ensuring_offscreen'
-            ? 'Ensuring offscreen runtime'
-            : activationStage === 'restoring_runtime' || activationStage === 'syncing_status'
-              ? 'Restoring runtime'
-              : activationStage === 'failed'
-                ? 'Runtime failed'
-                : runtimeState === 'running'
-                  ? 'Signer Running'
-                  : 'Signer Stopped';
+    activationStage === 'restoring_runtime'
+      ? 'Restoring runtime'
+      : activationStage === 'failed'
+        ? 'Runtime failed'
+        : runtimeState === 'running'
+          ? 'Signer Running'
+          : 'Signer Stopped';
 
   return {
     runtimeState,

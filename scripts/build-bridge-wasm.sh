@@ -27,7 +27,7 @@ fi
 if [[ ! -f "${BIFROST_RS_DIR}/Cargo.toml" ]]; then
   echo "error: bifrost-rs workspace not found at ${BIFROST_RS_DIR}" >&2
   echo "default workspace path: ${DEFAULT_BIFROST_RS_DIR}" >&2
-  echo "override with: BIFROST_RS_DIR=/absolute/path/to/bifrost-rs npm run build:bridge-wasm" >&2
+  echo "override with: BIFROST_RS_DIR=/absolute/path/to/bifrost-rs npm run build:browser-wasm" >&2
   exit 1
 fi
 

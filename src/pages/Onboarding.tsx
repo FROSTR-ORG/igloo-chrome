@@ -8,6 +8,7 @@ import {
   Label,
   PageLayout,
   ProfileConfirmationCard,
+  StoredProfilesLandingCard,
   Textarea
 } from 'igloo-ui';
 import { useStore } from '@/lib/store';
@@ -37,11 +38,13 @@ export default function OnboardingPage() {
     recoverProfile,
     activateProfile,
     unlockProfile,
+    deleteProfile,
     lastOnboardingFailure,
     clearOnboardingFailure
   } = useStore();
 
   const [pendingConnect, setPendingConnect] = React.useState<PendingConnect | null>(null);
+  const profiles = appState?.profiles ?? [];
 
   const [onboardPackage, setOnboardPackage] = React.useState('');
   const [onboardPassword, setOnboardPassword] = React.useState('');
@@ -52,6 +55,7 @@ export default function OnboardingPage() {
   const [bfprofilePassword, setBfprofilePassword] = React.useState('');
   const [bfsharePackage, setBfsharePackage] = React.useState('');
   const [bfsharePassword, setBfsharePassword] = React.useState('');
+  const [selectedProfileId, setSelectedProfileId] = React.useState('');
   const [unlockProfileId, setUnlockProfileId] = React.useState<string | null>(null);
   const [unlockPassword, setUnlockPassword] = React.useState('');
 
@@ -60,6 +64,7 @@ export default function OnboardingPage() {
   const [importingProfile, setImportingProfile] = React.useState(false);
   const [recoveringShare, setRecoveringShare] = React.useState(false);
   const [activatingProfileId, setActivatingProfileId] = React.useState<string | null>(null);
+  const [deletingProfileId, setDeletingProfileId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const onboardValidation = React.useMemo(
@@ -90,6 +95,15 @@ export default function OnboardingPage() {
       setOnboardPassword(password);
     }
   }, []);
+
+  React.useEffect(() => {
+    setSelectedProfileId((current) =>
+      current && profiles.some((profile) => profile.id === current) ? current : (profiles[0]?.id ?? '')
+    );
+    setUnlockProfileId((current) =>
+      current && profiles.some((profile) => profile.id === current) ? current : null
+    );
+  }, [profiles]);
 
   const canConnectOnboard = onboardValidation.isValid && onboardPasswordValidation.isValid;
   const canImportProfile = bfprofileValidation.isValid && bfprofilePassword.trim().length >= 8;
@@ -188,7 +202,48 @@ export default function OnboardingPage() {
     }
   }
 
-  const profiles = appState?.profiles ?? [];
+  async function onLoadStoredProfile(profileId: string) {
+    const profile = profiles.find((entry) => entry.id === profileId);
+    if (!profile) {
+      return;
+    }
+    if (appState?.configured && appState.activeProfileId === profileId) {
+      return;
+    }
+    if (profile.unlocked) {
+      await onActivateExisting(profileId);
+      return;
+    }
+    setSelectedProfileId(profileId);
+    setUnlockProfileId(profileId);
+    setUnlockPassword('');
+    setError(null);
+  }
+
+  async function onDeleteStoredProfile(profileId: string) {
+    const profile = profiles.find((entry) => entry.id === profileId);
+    const confirmed = window.confirm(
+      `Delete stored profile ${profile?.label || 'Unnamed device'} (${shortProfileId(profileId)})?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    setDeletingProfileId(profileId);
+    setError(null);
+    try {
+      await deleteProfile(profileId);
+      if (unlockProfileId === profileId) {
+        setUnlockProfileId(null);
+        setUnlockPassword('');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeletingProfileId(null);
+    }
+  }
+
+  const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
   const selectedLockedProfile =
     unlockProfileId ? profiles.find((profile) => profile.id === unlockProfileId) ?? null : null;
 
@@ -251,108 +306,89 @@ export default function OnboardingPage() {
         <div className="space-y-6">
           <ContentCard
             title="Choose Device"
-            description="Load an existing profile or import a new one into this extension."
+            description="Select a stored profile to load or delete it, or import new device material into this extension."
           >
-            <div className="space-y-3">
-              {profiles.length === 0 ? (
-                <div className="rounded border border-blue-500/20 bg-blue-500/5 px-3 py-3 text-sm text-blue-200">
-                  No device profiles are stored in this extension yet.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="text-sm text-blue-300">Stored Profiles</div>
-                  <div className="rounded border border-blue-500/20 bg-blue-500/5 px-3 py-3 text-sm text-blue-200">
-                    Stored profiles stay encrypted locally. Browser session resets and logout return them to the locked state.
+            <StoredProfilesLandingCard
+              profiles={profiles.map((profile) => {
+                const isActive = Boolean(appState?.configured && appState.activeProfileId === profile.id);
+                return {
+                  id: profile.id,
+                  label: profile.label || 'Unnamed device',
+                  subtitle: shortProfileId(profile.id),
+                  statusLabel: isActive ? 'Active' : profile.unlocked ? 'Available' : 'Locked',
+                  loadLabel:
+                    activatingProfileId === profile.id
+                      ? profile.unlocked
+                        ? 'Loading…'
+                        : 'Unlocking…'
+                      : isActive
+                        ? 'Open Dashboard'
+                        : 'Load Profile',
+                };
+              })}
+              selectedProfileId={selectedProfileId}
+              description="Stored profiles stay encrypted locally. Select one first, then load it for this browser session or remove it from this extension."
+              onSelect={(profileId) => {
+                setSelectedProfileId(profileId);
+                if (unlockProfileId && unlockProfileId !== profileId) {
+                  setUnlockProfileId(null);
+                  setUnlockPassword('');
+                }
+                setError(null);
+              }}
+              onLoad={(profileId) => void onLoadStoredProfile(profileId)}
+              onDelete={(profileId) => void onDeleteStoredProfile(profileId)}
+              loadDisabled={Boolean(activatingProfileId) || Boolean(deletingProfileId)}
+              deleteDisabled={Boolean(activatingProfileId) || Boolean(deletingProfileId)}
+              deleteLabel={deletingProfileId === selectedProfile?.id ? 'Deleting…' : 'Delete Profile'}
+              renderProfileDetail={(profile, isSelected) =>
+                selectedLockedProfile &&
+                selectedLockedProfile.id === profile.id &&
+                isSelected ? (
+                  <div className="mt-4 space-y-3">
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium text-cyan-100">Unlock Stored Profile</div>
+                      <div className="text-xs text-cyan-400">
+                        Enter the local profile password to unlock this device for the current browser session.
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm text-blue-300">Profile Password</Label>
+                      <Input
+                        type="password"
+                        placeholder="Enter profile password"
+                        value={unlockPassword}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => setUnlockPassword(e.target.value)}
+                        disabled={activatingProfileId === selectedLockedProfile.id}
+                      />
+                    </div>
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => {
+                          setUnlockProfileId(null);
+                          setUnlockPassword('');
+                        }}
+                        disabled={activatingProfileId === selectedLockedProfile.id}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        disabled={
+                          activatingProfileId === selectedLockedProfile.id ||
+                          unlockPassword.trim().length < 8
+                        }
+                        onClick={() => void onUnlockExisting(selectedLockedProfile.id)}
+                      >
+                        {activatingProfileId === selectedLockedProfile.id ? 'Unlocking…' : 'Unlock Profile'}
+                      </Button>
+                    </div>
                   </div>
-                  {profiles.map((profile) => (
-                    <div
-                      key={profile.id}
-                      className="flex items-center justify-between gap-4 rounded border border-cyan-900/30 bg-cyan-950/20 px-3 py-3"
-                    >
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-cyan-100">
-                          {profile.label || 'Unnamed device'}
-                        </div>
-                        <div className="text-xs text-cyan-300">{shortProfileId(profile.id)}</div>
-                      </div>
-                      {profile.unlocked ? (
-                        <Button
-                          type="button"
-                          disabled={activatingProfileId === profile.id}
-                          onClick={() => void onActivateExisting(profile.id)}
-                        >
-                          {activatingProfileId === profile.id ? 'Loading…' : 'Load Profile'}
-                        </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          onClick={() => {
-                            setUnlockProfileId(profile.id);
-                            setUnlockPassword('');
-                            setError(null);
-                          }}
-                        >
-                          Unlock
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                  {selectedLockedProfile ? (
-                    <div className="rounded border border-cyan-500/30 bg-cyan-950/25 p-4">
-                      <div className="space-y-1">
-                        <div className="text-sm font-medium text-cyan-100">
-                          Unlock Stored Profile
-                        </div>
-                        <div className="text-sm text-cyan-200">
-                          {selectedLockedProfile.label || 'Unnamed device'}
-                        </div>
-                        <div className="text-xs text-cyan-300">
-                          {shortProfileId(selectedLockedProfile.id)}
-                        </div>
-                        <div className="text-xs text-cyan-400">
-                          Enter the local profile password to unlock this device for the current browser session.
-                        </div>
-                      </div>
-                      <div className="mt-4 space-y-3">
-                        <div className="space-y-1.5">
-                          <Label className="text-sm text-blue-300">Profile Password</Label>
-                          <Input
-                            type="password"
-                            placeholder="Enter profile password"
-                            value={unlockPassword}
-                            onChange={(e: ChangeEvent<HTMLInputElement>) => setUnlockPassword(e.target.value)}
-                            disabled={activatingProfileId === selectedLockedProfile.id}
-                          />
-                        </div>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            onClick={() => {
-                              setUnlockProfileId(null);
-                              setUnlockPassword('');
-                            }}
-                            disabled={activatingProfileId === selectedLockedProfile.id}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="button"
-                            disabled={
-                              activatingProfileId === selectedLockedProfile.id ||
-                              unlockPassword.trim().length < 8
-                            }
-                            onClick={() => void onUnlockExisting(selectedLockedProfile.id)}
-                          >
-                            {activatingProfileId === selectedLockedProfile.id ? 'Unlocking…' : 'Unlock Profile'}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
+                ) : null
+              }
+            />
           </ContentCard>
 
           <div className="grid gap-6 xl:grid-cols-3">

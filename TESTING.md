@@ -23,12 +23,12 @@ The Playwright suite covers:
 
 ## Prerequisites
 - dependencies installed with `npm install`
-- WASM artifacts built via `npm run build:bridge-wasm`
+- WASM artifacts built via `npm run build:browser-wasm`
 - Chromium available for Playwright
 
 ## Typical workflow
 1. `bunx tsc --noEmit`
-2. `npm run build:bridge-wasm`
+2. `npm run build:browser-wasm`
 3. `npm run build`
 4. `npm run test:e2e`
 

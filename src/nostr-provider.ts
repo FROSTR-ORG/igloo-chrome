@@ -1,4 +1,4 @@
-import { EXTENSION_SOURCE, MESSAGE_TYPE } from '@/extension/protocol';
+import { EXTENSION_SOURCE, PROVIDER_METHOD } from '@/extension/protocol';
 
 type PendingRequest = {
   resolve: (value: unknown) => void;
@@ -75,32 +75,32 @@ window.addEventListener('message', (event) => {
 
 window.nostr = {
   async getPublicKey() {
-    const result = await request(MESSAGE_TYPE.NOSTR_GET_PUBLIC_KEY, {});
+    const result = await request(PROVIDER_METHOD.GET_PUBLIC_KEY, {});
     if (typeof result !== 'string') {
       throw new Error('Invalid public key response');
     }
     return result;
   },
   async getRelays() {
-    const result = await request(MESSAGE_TYPE.NOSTR_GET_RELAYS, {});
+    const result = await request(PROVIDER_METHOD.GET_RELAYS, {});
     if (!result || typeof result !== 'object') {
       throw new Error('Invalid relay response');
     }
     return result as Record<string, { read: boolean; write: boolean }>;
   },
   async signEvent(event: Record<string, unknown>) {
-    return await request(MESSAGE_TYPE.NOSTR_SIGN_EVENT, { event });
+    return await request(PROVIDER_METHOD.SIGN_EVENT, { event });
   },
   nip04: {
     async encrypt(pubkey: string, plaintext: string) {
-      const result = await request(MESSAGE_TYPE.NOSTR_NIP04_ENCRYPT, { pubkey, plaintext });
+      const result = await request(PROVIDER_METHOD.NIP04_ENCRYPT, { pubkey, plaintext });
       if (typeof result !== 'string') {
         throw new Error('Invalid encryption response');
       }
       return result;
     },
     async decrypt(pubkey: string, ciphertext: string) {
-      const result = await request(MESSAGE_TYPE.NOSTR_NIP04_DECRYPT, { pubkey, ciphertext });
+      const result = await request(PROVIDER_METHOD.NIP04_DECRYPT, { pubkey, ciphertext });
       if (typeof result !== 'string') {
         throw new Error('Invalid decryption response');
       }
@@ -109,14 +109,14 @@ window.nostr = {
   },
   nip44: {
     async encrypt(pubkey: string, plaintext: string) {
-      const result = await request(MESSAGE_TYPE.NOSTR_NIP44_ENCRYPT, { pubkey, plaintext });
+      const result = await request(PROVIDER_METHOD.NIP44_ENCRYPT, { pubkey, plaintext });
       if (typeof result !== 'string') {
         throw new Error('Invalid encryption response');
       }
       return result;
     },
     async decrypt(pubkey: string, ciphertext: string) {
-      const result = await request(MESSAGE_TYPE.NOSTR_NIP44_DECRYPT, { pubkey, ciphertext });
+      const result = await request(PROVIDER_METHOD.NIP44_DECRYPT, { pubkey, ciphertext });
       if (typeof result !== 'string') {
         throw new Error('Invalid decryption response');
       }

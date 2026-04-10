@@ -8,7 +8,7 @@ Chrome MV3 signing-device extension for FROSTR.
 
 This project is extension-first:
 - `background.js` is the control plane.
-- `offscreen.html` hosts the signer runtime boundary.
+- `background.js` also hosts the live signer runtime session.
 - `options.html` is the operator dashboard.
 - `popup.html` exposes quick status and entry into the dashboard.
 - `content-script.js` and `nostr-provider.js` expose the website bridge.
@@ -17,16 +17,15 @@ The runtime target is the shared Rust signer runtime compiled to browser WASM. T
 
 The extension is a thin host over the signer runtime:
 - signer truth comes from `bifrost-rs`
-- background caches and distributes signer state
-- offscreen owns the live WASM runtime session
+- background owns runtime state and distributes signer status
 - UI renders signer-owned status and controls
 - shared presentational components come from the sibling `igloo-ui` package
 
 ## Status
 - MV3 extension package builds into `dist/`
 - `getPublicKey()` is served from configured profile metadata, while `signEvent` and `nip44.encrypt/decrypt` still require the live WASM runtime
-- onboarding persists profile data for background and offscreen runtime recovery
-- runtime snapshots survive offscreen teardown and browser-context relaunch
+- onboarding persists profile data for background runtime recovery
+- runtime snapshots survive service-worker restarts and browser-context relaunch
 - signer-owned `runtime_status()` is the canonical status model
 - signer-owned `drain_runtime_events()` is the normal incremental update path
 - Playwright coverage exercises smoke, provider, live signer, and lifecycle paths
@@ -39,7 +38,7 @@ The extension is a thin host over the signer runtime:
 
 ## Build
 1. `npm install`
-2. `npm run build:bridge-wasm`
+2. `npm run build:browser-wasm`
 3. `npm run build`
 
 Build-time observability controls:
@@ -50,7 +49,7 @@ Load `dist/` as an unpacked extension in Chrome.
 
 ## Test
 1. `bunx tsc --noEmit`
-2. `npm run build:bridge-wasm`
+2. `npm run build:browser-wasm`
 3. `npm run build`
 4. `npm run test:e2e`
 
@@ -80,10 +79,10 @@ The extension expects these files in `public/wasm`:
 - `bifrost_bridge_wasm_bg.wasm`
 
 Refresh them with:
-- `npm run build:bridge-wasm`
+- `npm run build:browser-wasm`
 
 Override the bridge source checkout with:
-- `BIFROST_RS_DIR=/absolute/path/to/runtime-source npm run build:bridge-wasm`
+- `BIFROST_RS_DIR=/absolute/path/to/runtime-source npm run build:browser-wasm`
 
 The build step syncs the shared browser bridge artifacts into the extension `public/wasm` directory.
 

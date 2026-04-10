@@ -36,7 +36,14 @@ const tabs: Array<{
 ];
 
 export default function DashboardPage() {
-  const { profile, saveProfile, wipeAllData, logout } = useStore();
+  const {
+    profile,
+    saveProfile,
+    connectOnboarding,
+    completeRotationUpdate,
+    copyProfilePackage,
+    logout,
+  } = useStore();
   const [activeTab, setActiveTab] = React.useState<DashboardTab>('signer');
   const profileTag = profile?.id ? `${profile.groupName ?? 'device'} (${shortProfileId(profile.id)})` : null;
 
@@ -79,8 +86,10 @@ export default function DashboardPage() {
           <SettingsPanel
             profile={profile}
             saveProfile={saveProfile}
+            connectOnboarding={connectOnboarding}
+            completeRotationUpdate={completeRotationUpdate}
+            copyProfilePackage={copyProfilePackage}
             logout={logout}
-            wipeAllData={wipeAllData}
           />
         </div>
       )}

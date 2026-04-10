@@ -6,14 +6,18 @@
   "scripts": {
     "build:ui": "npm --prefix ../igloo-ui run build",
     "build:app": "node ./scripts/build.mjs",
-    "dev": "npm run build:ui && npm run build:bridge-wasm && node ./scripts/build.mjs",
-    "build": "npm run build:ui && npm run build:bridge-wasm && npm run build:app",
-    "build:bridge-wasm": "node ./scripts/sync-bridge-wasm.mjs",
-    "test:unit": "vitest run",
+    "build:app:fast": "npm run build:browser-wasm && npm run build:app",
+    "dev": "npm run build:ui && npm run build:browser-wasm && node ./scripts/build.mjs",
+    "build": "npm run build:ui && npm run build:browser-wasm && npm run build:app",
+    "build:browser-wasm": "node ./scripts/sync-bridge-wasm.mjs",
+    "typecheck:local": "npm run build:ui && bunx tsc --noEmit",
+    "typecheck": "npm run build:ui && bunx tsc --noEmit",
+    "test:unit:fast": "npm run typecheck:local && vitest run",
+    "test:unit": "npm run typecheck && vitest run",
     "test:e2e": "npm --prefix ../../test run test:e2e:igloo-chrome",
-    "test:ci": "npm run build:bridge-wasm && npm run test:unit && npm run test:e2e && npm run build",
+    "test:ci": "npm run build:browser-wasm && npm run test:unit && npm run test:e2e && npm run build",
     "package": "node ./scripts/package-release.mjs",
-    "release:candidate": "npm run build:bridge-wasm && bunx tsc --noEmit && npm run build && npm run test:e2e && npm run package"
+    "release:candidate": "npm run build:browser-wasm && npm run typecheck && npm run build && npm run test:e2e && npm run package"
   },
   "dependencies": {
     "igloo-shared": "file:../igloo-shared",
