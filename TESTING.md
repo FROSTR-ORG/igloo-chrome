@@ -26,6 +26,10 @@ The Playwright suite covers:
 - WASM artifacts built via `npm run build:browser-wasm`
 - Chromium available for Playwright
 
+If you are using workspace entrypoints such as `./run.sh browser igloo-chrome ...`,
+`./run.sh demo start`, or the workspace Playwright/test-prebuild flows, those
+paths now rebuild and sync browser-WASM automatically.
+
 ## Typical workflow
 1. `bunx tsc --noEmit`
 2. `npm run build:browser-wasm`
@@ -59,6 +63,8 @@ The Playwright source and demo harness live in the surrounding workspace.
 ## Notes
 - The live signer tests start local relay/responder fixtures.
 - The demo stack can be started manually through the workspace demo harness.
+- The dedicated demo lane also covers the real Chrome/Home onboarding flow
+  against `igloo-demo`, not just Chrome-only live signing.
 - Advanced/operator manual runs may also use direct Docker Compose commands.
 - Manual demo onboarding packages and passwords are written by the harness into its generated artifact directory.
 - Browser-facing local demo relay URLs should use `ws://localhost:<port>`.

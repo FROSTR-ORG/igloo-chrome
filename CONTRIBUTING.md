@@ -23,7 +23,12 @@ This project is a Chrome MV3 signing-device extension for the FROSTR protocol. C
 2. Run `bunx tsc --noEmit`.
 3. Run `npm run build`.
 4. Run `npm run test:e2e`.
-5. If the change touches the Rust/WASM browser packages, rerun `npm run build:browser-wasm` before the build and tests.
+5. If you are working directly in the repo and the change touches Rust/browser-WASM, run `npm run build:browser-wasm` before the build and tests.
+
+Workspace-owned entrypoints already enforce browser-WASM freshness:
+- `./run.sh browser igloo-chrome ...`
+- `./run.sh demo start`
+- workspace Playwright prebuild and browser-WASM guard scripts
 
 ## Design expectations
 - Keep the background service worker thin.

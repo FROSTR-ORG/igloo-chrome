@@ -41,6 +41,12 @@ The extension is a thin host over the signer runtime:
 2. `npm run build:browser-wasm`
 3. `npm run build`
 
+Workspace-owned entrypoints such as `./run.sh browser igloo-chrome build` and
+`./run.sh demo start` already refresh the shared browser-WASM artifacts before
+they build or demo the extension. Run `npm run build:browser-wasm` directly
+only when you are working inside `igloo-chrome` without those workspace
+wrappers.
+
 Build-time observability controls:
 - `VITE_IGLOO_VERBOSE=1 npm run build`
 - `VITE_IGLOO_DEBUG=1 npm run build`
@@ -85,6 +91,8 @@ Override the bridge source checkout with:
 - `BIFROST_RS_DIR=/absolute/path/to/runtime-source npm run build:browser-wasm`
 
 The build step syncs the shared browser bridge artifacts into the extension `public/wasm` directory.
+Workspace guardrails also rebuild and diff these artifacts during repo-level test
+and demo flows, so stale browser-WASM is now treated as a hard failure.
 
 ## Build system
 The extension is packaged without Vite.
