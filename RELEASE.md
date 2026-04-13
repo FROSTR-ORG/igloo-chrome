@@ -11,10 +11,9 @@ Produce a deterministic browser-loadable extension candidate from the current re
 - access to the shared Rust signer runtime source, or `BIFROST_RS_DIR` set correctly
 
 ## Pre-release checks
-1. `bunx tsc --noEmit`
-2. `npm run build:browser-wasm`
-3. `npm run build`
-4. `npm run test:e2e`
+1. `npm run test:unit`
+2. `npm run build`
+3. `npm run test:e2e`
 
 The current E2E release path uses infra-owned global setup to prebuild:
 - the unpacked extension

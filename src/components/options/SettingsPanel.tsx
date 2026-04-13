@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ContentCard, Input, OperatorSettingsPanel, Textarea, Button } from 'igloo-ui';
+import { Button, ContentCard, CRITICAL_E2E_TEST_IDS, Input, OperatorSettingsPanel, Textarea } from 'igloo-ui';
 import type { PendingOnboardingProfile, StoredExtensionProfile } from '@/extension/protocol';
 import { DEFAULT_RELAYS, groupPublicKeyFromPackage, normalizeRelays } from '@/lib/igloo';
 import {
@@ -256,6 +256,7 @@ export function SettingsPanel({
                       <Button
                         type="button"
                         size="sm"
+                        data-testid={CRITICAL_E2E_TEST_IDS.rotationConnectSubmit}
                         disabled={!rotatePackage.trim() || rotatePassword.trim().length < 8 || rotating}
                         onClick={() => void handleConnectRotation()}
                       >
@@ -286,7 +287,13 @@ export function SettingsPanel({
                       <Button type="button" variant="secondary" size="sm" onClick={() => setPendingRotation(null)} disabled={rotating}>
                         Cancel
                       </Button>
-                      <Button type="button" size="sm" onClick={() => void handleConfirmRotation()} disabled={rotating}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        data-testid={CRITICAL_E2E_TEST_IDS.rotationConfirmSubmit}
+                        onClick={() => void handleConfirmRotation()}
+                        disabled={rotating}
+                      >
                         {rotating ? 'Replacing…' : 'rotate share'}
                       </Button>
                     </div>

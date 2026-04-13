@@ -37,15 +37,19 @@ The extension is a thin host over the signer runtime:
 - access to the shared Rust signer runtime source used to build the WASM bridge, or `BIFROST_RS_DIR` set explicitly
 
 ## Build
-1. `npm install`
-2. `npm run build:browser-wasm`
-3. `npm run build`
+Workspace-owned entrypoints are the default:
+- `make igloo-chrome-build`
+- `make igloo-chrome-dev`
+- `make igloo-chrome-test-e2e`
+- `make demo-start`
 
-Workspace-owned entrypoints such as `./run.sh browser igloo-chrome build` and
-`./run.sh demo start` already refresh the shared browser-WASM artifacts before
-they build or demo the extension. Run `npm run build:browser-wasm` directly
-only when you are working inside `igloo-chrome` without those workspace
-wrappers.
+For repo-local work inside `repos/igloo-chrome`:
+1. `npm install`
+2. `npm run build`
+
+`npm run build`, `npm run test:e2e`, and the other public scripts now route
+through the shared workspace prep helper. Run `npm run build:browser-wasm`
+directly only for low-level debugging of browser-WASM sync.
 
 Build-time observability controls:
 - `VITE_IGLOO_VERBOSE=1 npm run build`
@@ -54,10 +58,8 @@ Build-time observability controls:
 Load `dist/` as an unpacked extension in Chrome.
 
 ## Test
-1. `bunx tsc --noEmit`
-2. `npm run build:browser-wasm`
-3. `npm run build`
-4. `npm run test:e2e`
+1. `npm run test:unit`
+2. `npm run test:e2e`
 
 `npm run test:e2e` proxies to the workspace-owned Playwright suite for this extension.
 
@@ -85,7 +87,8 @@ The extension expects these files in `public/wasm`:
 - `bifrost_bridge_wasm_bg.wasm`
 
 Refresh them with:
-- `npm run build:browser-wasm`
+- `make browser-wasm-sync`
+- `npm run build:browser-wasm` for low-level repo-local sync only
 
 Override the bridge source checkout with:
 - `BIFROST_RS_DIR=/absolute/path/to/runtime-source npm run build:browser-wasm`

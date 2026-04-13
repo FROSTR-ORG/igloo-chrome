@@ -23,18 +23,17 @@ The Playwright suite covers:
 
 ## Prerequisites
 - dependencies installed with `npm install`
-- WASM artifacts built via `npm run build:browser-wasm`
 - Chromium available for Playwright
 
-If you are using workspace entrypoints such as `./run.sh browser igloo-chrome ...`,
-`./run.sh demo start`, or the workspace Playwright/test-prebuild flows, those
-paths now rebuild and sync browser-WASM automatically.
+If you are using workspace entrypoints such as `make igloo-chrome-build`,
+`make igloo-chrome-dev`, `make demo-start`, or the workspace Playwright/test-prebuild flows, those
+paths now rebuild and sync browser-WASM automatically. The repo-local public
+scripts now do the same.
 
 ## Typical workflow
-1. `bunx tsc --noEmit`
-2. `npm run build:browser-wasm`
-3. `npm run build`
-4. `npm run test:e2e`
+1. `npm run test:unit`
+2. `npm run build`
+3. `npm run test:e2e`
 
 The Playwright config now runs a global setup step before the suite:
 - prebuilds the required shared runtime test binaries
@@ -55,6 +54,10 @@ Snapshot and nonce-pool inspection remain useful for diagnostics, but they are n
 Observability controls:
 - `VITE_IGLOO_VERBOSE=1 npm run build`
 - `VITE_IGLOO_DEBUG=1 npm run build`
+
+Low-level maintenance/debug surfaces still exist:
+- `npm run build:browser-wasm`
+- `npm run build:ui`
 
 The infra-owned Playwright fixtures default to `VITE_IGLOO_VERBOSE=1` for live/runtime coverage.
 
