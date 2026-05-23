@@ -13,6 +13,8 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const distDir = path.join(rootDir, 'dist');
 const publicDir = path.join(rootDir, 'public');
+const defaultScratchWasmDir = path.resolve(rootDir, '../../.tmp/test-prebuild/browser-wasm/igloo-chrome/public/wasm');
+const trackedWasmDir = path.join(publicDir, 'wasm');
 const sourceCss = path.join(rootDir, 'src/index.css');
 const distCss = path.join(distDir, 'index.css');
 
@@ -47,6 +49,32 @@ async function cleanDist() {
 
 async function copyPublic() {
   await fs.cp(publicDir, distDir, { recursive: true });
+}
+
+async function exists(pathToCheck) {
+  try {
+    await fs.access(pathToCheck);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveWasmSourceDir() {
+  if (process.env.IGLOO_CHROME_WASM_SOURCE_DIR) {
+    return path.resolve(process.env.IGLOO_CHROME_WASM_SOURCE_DIR);
+  }
+  if (await exists(defaultScratchWasmDir)) {
+    return defaultScratchWasmDir;
+  }
+  return trackedWasmDir;
+}
+
+async function copyWasmAssets() {
+  const wasmSourceDir = await resolveWasmSourceDir();
+  const distWasmDir = path.join(distDir, 'wasm');
+  await fs.rm(distWasmDir, { recursive: true, force: true });
+  await fs.cp(wasmSourceDir, distWasmDir, { recursive: true });
 }
 
 async function buildCss() {
@@ -123,6 +151,7 @@ async function writeHtmlPages() {
 async function buildAll() {
   await cleanDist();
   await copyPublic();
+  await copyWasmAssets();
   await buildCss();
 
   await bundleBrowserEntry('src/main.tsx', path.join(distDir, 'options.js'));

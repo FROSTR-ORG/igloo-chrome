@@ -8,8 +8,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const chromeRoot = path.resolve(__dirname, '..');
 const sharedRoot = path.resolve(chromeRoot, '../igloo-shared');
-const sourceDir = path.resolve(sharedRoot, 'public/wasm');
-const targetDir = path.resolve(chromeRoot, 'public/wasm');
+const sourceDir = process.env.IGLOO_BROWSER_WASM_SOURCE_DIR
+  ? path.resolve(process.env.IGLOO_BROWSER_WASM_SOURCE_DIR)
+  : path.resolve(sharedRoot, 'public/wasm');
+const targetDir = process.env.IGLOO_BROWSER_WASM_TARGET_DIR
+  ? path.resolve(process.env.IGLOO_BROWSER_WASM_TARGET_DIR)
+  : path.resolve(chromeRoot, 'public/wasm');
 const expectedArtifacts = [
   'bifrost_bridge_wasm.js',
   'bifrost_bridge_wasm.d.ts',

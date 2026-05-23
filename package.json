@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare:workspace": "bash ../../scripts/test-prebuild.sh ensure ui browser-wasm",
+    "prepare:workspace": "bash ../../scripts/test-prebuild.sh ensure chrome-runtime",
     "prepare:e2e": "bash ../../scripts/test-prebuild.sh ensure chrome home demo",
     "build:ui": "npm --prefix ../igloo-ui run build",
     "build:app": "node ./scripts/build.mjs",
