@@ -79,6 +79,8 @@ export function profile_backup_event_kind(): number;
 
 export function profile_backup_key_domain(): string;
 
+export function recover_secret_key_from_shares(input_json: string): string;
+
 export function rotate_keyset_bundle(input_json: string): string;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -111,6 +113,7 @@ export interface InitOutput {
     readonly parse_profile_backup_event: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly profile_backup_event_kind: () => number;
     readonly profile_backup_key_domain: () => [number, number];
+    readonly recover_secret_key_from_shares: (a: number, b: number) => [number, number, number, number];
     readonly rotate_keyset_bundle: (a: number, b: number) => [number, number, number, number];
     readonly wasmbridgeruntime_clear_policy_overrides: (a: number) => [number, number];
     readonly wasmbridgeruntime_drain_completions: (a: number) => [number, number, number, number];
