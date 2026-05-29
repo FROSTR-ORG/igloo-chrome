@@ -1,7 +1,7 @@
 import {
   getRuntimeStatus,
   stopSignerNode,
-  type NodeWithEvents,
+  type BrowserBridgeNode,
 } from '@/lib/igloo';
 import type { RuntimePhase, StoredExtensionProfile } from '@/extension/protocol';
 import type { SignerSession } from '@/lib/runtime-host/types';
@@ -28,8 +28,8 @@ export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, lab
   ]);
 }
 
-export async function shutdownNode(node: NodeWithEvents) {
-  const candidate = node as NodeWithEvents & { shutdown?: () => Promise<void> };
+export async function shutdownNode(node: BrowserBridgeNode) {
+  const candidate = node as BrowserBridgeNode & { shutdown?: () => Promise<void> };
   if (typeof candidate.shutdown === 'function') {
     await candidate.shutdown();
     return;

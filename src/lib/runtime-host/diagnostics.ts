@@ -1,7 +1,7 @@
 import {
   createLogger,
   createObservabilityBuffer,
-  type NodeWithEvents,
+  type BrowserBridgeNode,
   type ObservabilityEvent,
 } from '@/lib/igloo';
 import { toErrorMessage } from '@/lib/runtime-host/helpers';
@@ -35,7 +35,7 @@ export function createPendingBootDiagnostics() {
   };
 }
 
-export function attachDiagnostics(node: NodeWithEvents) {
+export function attachDiagnostics(node: BrowserBridgeNode) {
   const diagnostics = createObservabilityBuffer(500);
 
   const messageHandler = (payload: unknown) => {
@@ -87,7 +87,7 @@ export function attachDiagnostics(node: NodeWithEvents) {
   };
 }
 
-export function attachOnboardingLogBuffer(node: NodeWithEvents) {
+export function attachOnboardingLogBuffer(node: BrowserBridgeNode) {
   const lines: string[] = [];
 
   const onMessage = (payload: unknown) => {

@@ -1,5 +1,5 @@
 import type {
-  NodeWithEvents,
+  BrowserBridgeNode,
   ObservabilityEvent,
   RuntimeStatusSummary,
 } from '@/lib/igloo';
@@ -9,7 +9,7 @@ export type SignerSession = {
   key: string;
   profileId: string;
   sessionKeyB64: string;
-  node: NodeWithEvents;
+  node: BrowserBridgeNode;
   diagnostics: () => ObservabilityEvent[];
   droppedDiagnostics: () => number;
   detachDiagnostics: () => void;
