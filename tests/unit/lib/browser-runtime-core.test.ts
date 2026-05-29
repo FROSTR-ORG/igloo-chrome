@@ -217,7 +217,9 @@ vi.mock('../../../../igloo-shared/src/bridge-wasm-runtime', () => {
 });
 
 async function loadBrowserRuntimeCore() {
-  return await import('../../../../igloo-shared/src/browser-runtime-core');
+  // igloo-shared's browser-runtime-core monolith was split in R2 (Bucket G.2);
+  // the public runtime API now lives in runtime-api.ts.
+  return await import('../../../../igloo-shared/src/runtime-api');
 }
 
 function attachLogBuffer(node: { on: (event: string, handler: (...args: unknown[]) => void) => void }) {
