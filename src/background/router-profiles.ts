@@ -10,7 +10,6 @@ import {
   encodeBfProfilePackage,
   encodeBfSharePackage,
   saveImportedBrowserProfileAndMaybeActivate,
-  saveRecoveredBrowserProfileAndMaybeActivate,
 } from '@/lib/igloo';
 import { decryptLocalProfileBlobWithPassword, type LocalProfileBlobPayload } from '@/lib/profile-blob';
 import { normalizeSignerSettings } from '@/lib/signer-settings';
@@ -43,7 +42,7 @@ export function createProfilesRouter(
     ).catch(() => undefined);
   }
 
-  function createPersistAndActivateOptions(reason: 'import_bfprofile' | 'recover_bfshare') {
+  function createPersistAndActivateOptions(reason: 'import_bfprofile') {
     let persistedProfileId: string | null = null;
     return {
       signerSettings: normalizeSignerSettings(),
@@ -88,7 +87,7 @@ export function createProfilesRouter(
     message: TMessage;
     sendResponse: (value: unknown) => void;
     invalidMessage: string;
-    reason: 'import_bfprofile' | 'recover_bfshare';
+    reason: 'import_bfprofile';
     save: (input: {
       packageText: string;
       password: string;
@@ -124,21 +123,6 @@ export function createProfilesRouter(
         save: async ({ packageText, password, options }) =>
           (
             await saveImportedBrowserProfileAndMaybeActivate({
-              packageText,
-              password,
-              ...options,
-            })
-          ).profile,
-      }),
-    [COMMAND_TYPE.PROFILES_RECOVER]: (message, sendResponse) =>
-      handlePackageSave({
-        message,
-        sendResponse,
-        invalidMessage: 'Invalid bfshare recovery payload',
-        reason: 'recover_bfshare',
-        save: async ({ packageText, password, options }) =>
-          (
-            await saveRecoveredBrowserProfileAndMaybeActivate({
               packageText,
               password,
               ...options,

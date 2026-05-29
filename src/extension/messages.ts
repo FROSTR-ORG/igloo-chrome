@@ -7,7 +7,6 @@ export const COMMAND_TYPE = {
   PROFILES_DELETE: 'ext.profiles.delete',
   PROFILES_LOGOUT: 'ext.profiles.logout',
   PROFILES_IMPORT: 'ext.profiles.import',
-  PROFILES_RECOVER: 'ext.profiles.recover',
   PROFILES_EXPORT_PACKAGE: 'ext.profiles.exportPackage',
   ONBOARDING_START: 'ext.onboarding.start',
   ONBOARDING_COMPLETE: 'ext.onboarding.complete',
@@ -101,12 +100,6 @@ export type ProfilesLogoutMessage = {
 
 export type ProfilesImportMessage = {
   type: typeof COMMAND_TYPE.PROFILES_IMPORT;
-  packageText: string;
-  password: string;
-};
-
-export type ProfilesRecoverMessage = {
-  type: typeof COMMAND_TYPE.PROFILES_RECOVER;
   packageText: string;
   password: string;
 };
@@ -214,7 +207,6 @@ export type ExtensionCommand =
   | ProfilesDeleteMessage
   | ProfilesLogoutMessage
   | ProfilesImportMessage
-  | ProfilesRecoverMessage
   | ProfilesExportPackageMessage
   | OnboardingStartMessage
   | OnboardingCompleteMessage
@@ -284,7 +276,6 @@ export type ExtensionCommandResultByType = {
   [COMMAND_TYPE.PROFILES_DELETE]: boolean;
   [COMMAND_TYPE.PROFILES_LOGOUT]: boolean;
   [COMMAND_TYPE.PROFILES_IMPORT]: StoredExtensionProfile;
-  [COMMAND_TYPE.PROFILES_RECOVER]: StoredExtensionProfile;
   [COMMAND_TYPE.PROFILES_EXPORT_PACKAGE]: { packageText: string };
   [COMMAND_TYPE.ONBOARDING_START]: PendingOnboardingProfile;
   [COMMAND_TYPE.ONBOARDING_COMPLETE]: StoredExtensionProfile;

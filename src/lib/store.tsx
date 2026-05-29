@@ -13,7 +13,6 @@ import {
   importBfprofile,
   prepareRuntime,
   refreshRuntimePeers,
-  recoverBfshare,
   reloadRuntime,
   revokePermissionPolicy,
   saveExtensionProfile,
@@ -62,7 +61,6 @@ type AppState = {
     pendingProfile: PendingOnboardingProfile
   ) => Promise<StoredExtensionProfile>;
   importProfile: (packageText: string, password: string) => Promise<StoredExtensionProfile>;
-  recoverProfile: (packageText: string, password: string) => Promise<StoredExtensionProfile>;
   activateProfile: (profileId: string) => Promise<void>;
   unlockProfile: (profileId: string, password: string) => Promise<void>;
   deleteProfile: (profileId: string) => Promise<void>;
@@ -226,13 +224,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return profile;
   }
 
-  async function recoverProfile(packageText: string, password: string) {
-    setLastOnboardingFailure(null);
-    const profile = await recoverBfshare(packageText, password);
-    await refreshAppState();
-    return profile;
-  }
-
   async function activateProfile(profileId: string) {
     await activateExtensionProfile(profileId);
     await refreshAppState();
@@ -340,7 +331,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       completeOnboarding: finalizeOnboarding,
       completeRotationUpdate: finalizeRotationUpdate,
       importProfile,
-      recoverProfile,
       activateProfile,
       unlockProfile,
       deleteProfile,

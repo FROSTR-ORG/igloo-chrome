@@ -21,7 +21,6 @@ const mockClient = vi.hoisted(() => ({
   completeOnboarding: vi.fn(),
   completeRotationOnboarding: vi.fn(),
   importBfprofile: vi.fn(),
-  recoverBfshare: vi.fn(),
   activateExtensionProfile: vi.fn(),
   unlockExtensionProfile: vi.fn(),
   logoutExtensionProfile: vi.fn(),
@@ -150,12 +149,6 @@ describe('igloo-chrome StoreProvider', () => {
       groupName: 'Imported profile',
       relays: ['ws://relay.example'],
       sharePublicKey: '11'.repeat(32),
-    });
-    mockClient.recoverBfshare.mockResolvedValue({
-      id: 'bb'.repeat(32),
-      groupName: 'Recovered profile',
-      relays: ['ws://relay.example'],
-      sharePublicKey: '22'.repeat(32),
     });
     mockClient.activateExtensionProfile.mockImplementation(async (profileId: string) => ({
       id: profileId,

@@ -36,7 +36,6 @@ export default function OnboardingPage() {
     connectOnboarding,
     completeOnboarding,
     importProfile,
-    recoverProfile,
     activateProfile,
     unlockProfile,
     deleteProfile,
@@ -54,8 +53,6 @@ export default function OnboardingPage() {
 
   const [bfprofilePackage, setBfprofilePackage] = React.useState('');
   const [bfprofilePassword, setBfprofilePassword] = React.useState('');
-  const [bfsharePackage, setBfsharePackage] = React.useState('');
-  const [bfsharePassword, setBfsharePassword] = React.useState('');
   const [selectedProfileId, setSelectedProfileId] = React.useState('');
   const [unlockProfileId, setUnlockProfileId] = React.useState<string | null>(null);
   const [unlockPassword, setUnlockPassword] = React.useState('');
@@ -63,7 +60,6 @@ export default function OnboardingPage() {
   const [connecting, setConnecting] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [importingProfile, setImportingProfile] = React.useState(false);
-  const [recoveringShare, setRecoveringShare] = React.useState(false);
   const [activatingProfileId, setActivatingProfileId] = React.useState<string | null>(null);
   const [deletingProfileId, setDeletingProfileId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -79,10 +75,6 @@ export default function OnboardingPage() {
   const bfprofileValidation = React.useMemo(
     () => packageLooksLike(bfprofilePackage, 'bfprofile1'),
     [bfprofilePackage]
-  );
-  const bfshareValidation = React.useMemo(
-    () => packageLooksLike(bfsharePackage, 'bfshare1'),
-    [bfsharePackage]
   );
 
   React.useEffect(() => {
@@ -108,7 +100,6 @@ export default function OnboardingPage() {
 
   const canConnectOnboard = onboardValidation.isValid && onboardPasswordValidation.isValid;
   const canImportProfile = bfprofileValidation.isValid && bfprofilePassword.trim().length >= 8;
-  const canRecoverProfile = bfshareValidation.isValid && bfsharePassword.trim().length >= 8;
   const canSaveOnboard =
     signerName.trim().length > 0 && localProfilePassword.trim().length >= 8 && !!pendingConnect;
 
@@ -161,19 +152,6 @@ export default function OnboardingPage() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setImportingProfile(false);
-    }
-  }
-
-  async function onRecoverBfshare(e: FormEvent) {
-    e.preventDefault();
-    setRecoveringShare(true);
-    setError(null);
-    try {
-      await recoverProfile(bfsharePackage.trim(), bfsharePassword);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRecoveringShare(false);
     }
   }
 
@@ -428,45 +406,6 @@ export default function OnboardingPage() {
                 <div className="flex justify-end pt-2">
                   <Button type="submit" disabled={!canImportProfile || importingProfile}>
                     {importingProfile ? 'Importing…' : 'Import Profile'}
-                  </Button>
-                </div>
-              </form>
-            </ContentCard>
-
-            <ContentCard
-              title="Recover bfshare"
-              description="Recover a device profile from relay backup using a protected bfshare package."
-            >
-              <form onSubmit={onRecoverBfshare} className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label className="text-sm text-blue-300">bfshare</Label>
-                  <Textarea
-                    placeholder="bfshare1..."
-                    value={bfsharePackage}
-                    onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setBfsharePackage(e.target.value)}
-                    rows={3}
-                    className="text-sm font-mono"
-                    disabled={recoveringShare}
-                    required
-                  />
-                  {!bfshareValidation.isValid && bfsharePackage && (
-                    <p className="text-xs text-red-400">{bfshareValidation.error}</p>
-                  )}
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm text-blue-300">Package Password</Label>
-                  <Input
-                    type="password"
-                    placeholder="Minimum 8 characters"
-                    value={bfsharePassword}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => setBfsharePassword(e.target.value)}
-                    disabled={recoveringShare}
-                    required
-                  />
-                </div>
-                <div className="flex justify-end pt-2">
-                  <Button type="submit" disabled={!canRecoverProfile || recoveringShare}>
-                    {recoveringShare ? 'Recovering…' : 'Recover Profile'}
                   </Button>
                 </div>
               </form>

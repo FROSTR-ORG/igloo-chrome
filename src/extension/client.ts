@@ -16,7 +16,6 @@ import {
   type ProfilesExportPackageMessage,
   type ProfilesImportMessage,
   type ProfilesLogoutMessage,
-  type ProfilesRecoverMessage,
   type ProfilesSaveMessage,
   type ProfilesUnlockMessage,
   type RotationCompleteMessage,
@@ -180,18 +179,6 @@ export async function importBfprofile(
     password
   };
   return await sendMessage(payload, 'Failed to import bfprofile');
-}
-
-export async function recoverBfshare(
-  packageText: string,
-  password: string
-): Promise<StoredExtensionProfile> {
-  const payload: ProfilesRecoverMessage = {
-    type: COMMAND_TYPE.PROFILES_RECOVER,
-    packageText,
-    password
-  };
-  return await sendMessage(payload, 'Failed to recover bfshare');
 }
 
 export async function exportProfilePackage(
