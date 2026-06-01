@@ -1,15 +1,12 @@
 import * as React from 'react';
 import {
   OperatorPermissionsPanel,
-  type OperatorMethodPermissionOverride,
-  type OperatorPolicyOverrideValue,
+  type PolicyDashboardViewModel,
+  type PolicyMethodOverrideState,
+  type PolicyOverrideValue,
 } from 'igloo-ui';
 import type { StoredPermissionPolicy } from '@/extension/protocol';
-import {
-  normalizeStoredPeerPolicies,
-  peerAllowsAllRequests,
-  peerAllowsAllResponses,
-} from '@/lib/peer-policy';
+import { normalizeStoredPeerPolicies } from '@/lib/peer-policy';
 import { useStore } from '@/lib/store';
 
 function formatTimestamp(value: number) {
@@ -112,27 +109,31 @@ export function PermissionsPanel() {
   );
   const runtimeActive = appState?.runtime.phase === 'ready' || appState?.runtime.phase === 'degraded';
 
+  const view: PolicyDashboardViewModel = {
+    siteRows: sitePolicies.map((policy) => ({
+      id: `${policy.host}-${policy.type}-${policy.createdAt}-${policy.kind ?? 'any'}`,
+      host: policy.host,
+      methodLabel: formatMethod(policy.type),
+      scopeLabel: typeof policy.kind === 'number' ? `kind ${policy.kind}` : 'all kinds',
+      createdAtLabel: formatTimestamp(policy.createdAt),
+      state: policy.allow ? 'allow' : 'deny',
+    })),
+    peerRows: runtimeActive
+      ? peerPolicies.map((policy) => ({
+          pubkey: policy.pubkey,
+          request: policy.effectivePolicy.request,
+          respond: policy.effectivePolicy.respond,
+          manualOverride: {
+            request: policy.manualOverride.request,
+            respond: policy.manualOverride.respond,
+          },
+        }))
+      : [],
+  };
+
   return (
     <OperatorPermissionsPanel
-      sitePermissions={sitePolicies.map((policy) => ({
-        id: `${policy.host}-${policy.type}-${policy.createdAt}-${policy.kind ?? 'any'}`,
-        host: policy.host,
-        methodLabel: formatMethod(policy.type),
-        scopeLabel: typeof policy.kind === 'number' ? `kind ${policy.kind}` : 'all kinds',
-        createdAtLabel: formatTimestamp(policy.createdAt),
-        allow: policy.allow,
-      }))}
-      peerPermissions={runtimeActive ? peerPolicies.map((policy) => ({
-        pubkey: policy.pubkey,
-        send: peerAllowsAllRequests(policy),
-        receive: peerAllowsAllResponses(policy),
-      })) : []}
-      peerPermissionStates={runtimeActive ? peerPolicies.map((policy) => ({
-        pubkey: policy.pubkey,
-        manualOverride: policy.manualOverride,
-        remoteObservation: policy.remoteObservation,
-        effectivePolicy: policy.effectivePolicy
-      })) : []}
+      view={view}
       loading={loading}
       onRefresh={() => void refresh()}
       onClearAllSitePermissions={() => void handleClearAll()}
@@ -143,13 +144,13 @@ export function PermissionsPanel() {
         if (target) void handleRevoke(target);
       }}
       onClearAllPeerPermissions={runtimeActive ? () => void handleClearPeerOverrides() : undefined}
-      onPeerPermissionOverrideChange={
+      onPeerPolicyOverrideChange={
         runtimeActive
           ? (
               pubkey: string,
               direction: 'request' | 'respond',
-              method: keyof OperatorMethodPermissionOverride,
-              value: OperatorPolicyOverrideValue
+              method: keyof PolicyMethodOverrideState,
+              value: PolicyOverrideValue
             ) =>
               void handlePeerPolicyChange(pubkey, direction, method, value)
           : undefined

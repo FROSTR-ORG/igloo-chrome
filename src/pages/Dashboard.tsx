@@ -52,9 +52,8 @@ export default function DashboardPage() {
       maxWidth="max-w-6xl"
       header={
         <AppHeader
-          title="igloo-chrome"
-          subtitle="operator dashboard"
-          right={
+          mode="dashboard"
+          actions={
             <div className="flex items-center gap-2">
               {profileTag ? (
                 <div className="rounded-full border border-cyan-900/40 bg-cyan-950/30 px-3 py-1 text-xs uppercase tracking-wide text-cyan-200">

@@ -4,8 +4,10 @@ import {
   ContentCard,
   OperatorSignerPanel,
   PageLayout,
-  type LogEntry,
-  type PeerPolicy,
+  type EventLogRowModel,
+  type PeerReadinessRowModel,
+  type PendingOperationRowModel,
+  type SignerDashboardViewModel,
 } from 'igloo-ui';
 import { type RuntimeStatusSummary, type StoredPeerPolicy } from '@/extension/protocol';
 import { useStore } from '@/lib/store';
@@ -19,28 +21,29 @@ import {
 
 const logger = createLogger('igloo.signer-page');
 
-function toLogEntry(event: ObservabilityEvent): LogEntry {
+function toEventRow(event: ObservabilityEvent): EventLogRowModel {
   return {
     id: `${event.ts}-${event.domain}-${event.event}`,
-    time: new Date(event.ts).toLocaleTimeString(),
-    level: event.level.toUpperCase(),
+    badgeLabel: event.domain,
+    badgeTone: event.level === 'error' ? 'danger' : event.level === 'warn' ? 'warning' : 'info',
     message: `${event.domain}.${event.event}`,
-    data: event,
+    timestampLabel: new Date(event.ts).toLocaleTimeString(),
   };
 }
 
-function derivePeers(summary: RuntimeStatusSummary | null, savedPolicies: StoredPeerPolicy[]): PeerPolicy[] {
-  const base = new Map<string, PeerPolicy>();
+function derivePeers(
+  summary: RuntimeStatusSummary | null,
+  savedPolicies: StoredPeerPolicy[],
+): PeerReadinessRowModel[] {
+  const base = new Map<string, PeerReadinessRowModel>();
 
   for (const [index, saved] of normalizeStoredPeerPolicies(savedPolicies).entries()) {
     base.set(saved.pubkey.toLowerCase(), {
+      id: saved.pubkey.toLowerCase(),
       alias: `Peer ${index + 1}`,
       pubkey: saved.pubkey.toLowerCase(),
-      send: peerAllowsAllRequests(saved),
-      receive: peerAllowsAllResponses(saved),
       state: 'offline',
       statusLabel: 'offline',
-      lastSeen: null,
     });
   }
 
@@ -48,13 +51,11 @@ function derivePeers(summary: RuntimeStatusSummary | null, savedPolicies: Stored
     const normalized = peer.toLowerCase();
     const existing = base.get(normalized);
     base.set(normalized, {
+      id: normalized,
       alias: existing?.alias ?? `Peer ${index + 1}`,
       pubkey: normalized,
-      send: existing?.send ?? true,
-      receive: existing?.receive ?? true,
       state: 'idle',
       statusLabel: 'known',
-      lastSeen: existing?.lastSeen ?? null,
     });
   }
 
@@ -62,17 +63,14 @@ function derivePeers(summary: RuntimeStatusSummary | null, savedPolicies: Stored
     const normalized = peer.pubkey.toLowerCase();
     const existing = base.get(normalized);
     base.set(normalized, {
+      id: normalized,
       alias: existing?.alias ?? `Peer ${peer.idx}`,
       pubkey: normalized,
-      send: existing?.send ?? true,
-      receive: existing?.receive ?? true,
       state: peer.can_sign ? 'warning' : peer.online ? 'online' : peer.known ? 'idle' : 'offline',
       statusLabel: peer.can_sign ? 'sign-ready' : peer.online ? 'online' : peer.known ? 'known' : 'offline',
-      lastSeen: peer.last_seen,
       incomingAvailable: peer.incoming_available,
       outgoingAvailable: peer.outgoing_available,
       outgoingSpent: peer.outgoing_spent,
-      shouldSendNonces: peer.should_send_nonces,
     });
   }
 
@@ -82,13 +80,13 @@ function derivePeers(summary: RuntimeStatusSummary | null, savedPolicies: Stored
 export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
   const { appState, loadRuntimeDiagnostics, profile, refreshRuntimePeers, startRuntime, stopRuntime } = useStore();
   const [copiedField, setCopiedField] = React.useState<'group' | 'share' | null>(null);
-  const [logs, setLogs] = React.useState<LogEntry[]>([]);
+  const [eventRows, setEventRows] = React.useState<EventLogRowModel[]>([]);
   const [actionError, setActionError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     void loadRuntimeDiagnostics()
       .then((diagnostics) => {
-        setLogs(diagnostics.diagnostics.map(toLogEntry));
+        setEventRows(diagnostics.diagnostics.map(toEventRow));
       })
       .catch((error) => {
         setActionError(error instanceof Error ? error.message : String(error));
@@ -174,49 +172,50 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
       </ContentCard>
     );
     if (embedded) return emptyState;
-    return <PageLayout header={<AppHeader title="igloo-chrome" subtitle="browser signing device" />}>{emptyState}</PageLayout>;
+    return <PageLayout header={<AppHeader mode="task" taskLabel="browser signing device" />}>{emptyState}</PageLayout>;
   }
+
+  const groupPublicKey = appState?.runtime.metadata?.group_public_key ?? profile.groupPublicKey ?? '';
+  const sharePublicKey = appState?.runtime.metadata?.share_public_key ?? profile.sharePublicKey ?? '';
+  const pendingOperationRows: PendingOperationRowModel[] =
+    appState?.runtime.pendingOperations.map((operation) => ({
+      id: operation.request_id,
+      operationLabel: operation.op_type,
+      thresholdLabel: `threshold ${operation.threshold}`,
+      startedLabel: new Date(operation.started_at).toLocaleTimeString(),
+      timeoutLabel: new Date(operation.timeout_at).toLocaleTimeString(),
+      responseLabel: `${operation.collected_responses.length} of ${operation.target_peers.length}`,
+    })) ?? [];
+
+  const view: SignerDashboardViewModel = {
+    profileName: profile.groupName || 'Unnamed signer',
+    thresholdLabel: peers.length ? `${peers.length} peers` : 'no peers',
+    publicKeyLabel: groupPublicKey,
+    shareLabel: sharePublicKey,
+    readinessLabel: runtimeSummaryLabel,
+    relaySummary: displayRuntimeError ?? (isSignerRunning ? 'Runtime connected' : 'Runtime stopped'),
+    peerRows: peers,
+    pendingOperationRows,
+    eventRows,
+  };
 
   const content = (
     <OperatorSignerPanel
-      profile={{
-        name: profile.groupName || 'Unnamed signer',
-        groupPublicKey: profile.groupPublicKey,
-        sharePublicKey: profile.sharePublicKey,
-      }}
+      view={view}
       introMessage="The signer runtime is hosted by the extension background service worker. This page is an operator console over that runtime."
-      runtimeState={presentation.runtimeState}
       runtimeControlLabel={runtimeControlLabel}
-      runtimeSummaryLabel={runtimeSummaryLabel}
-      activationStage={appState?.lifecycle.activation.stage ?? null}
-      activationUpdatedAt={appState?.lifecycle.activation.updatedAt ?? null}
-      runtimeError={displayRuntimeError}
-      sharePublicKey={appState?.runtime.metadata?.share_public_key ?? profile.sharePublicKey ?? ''}
-      groupPublicKey={appState?.runtime.metadata?.group_public_key ?? profile.groupPublicKey ?? ''}
       copiedField={copiedField}
       onCopyGroupKey={() => void handleCopy('group')}
       onCopyShareKey={() => void handleCopy('share')}
       onPrimaryAction={isSignerRunning ? () => void handleStop() : () => void handleStart()}
+      primaryActionVariant={isSignerRunning ? 'destructive' : 'success'}
       primaryActionDisabled={isConnecting}
       onRefreshPeers={() => void handleRefreshPeers()}
       refreshPeersDisabled={!isSignerRunning}
-      peers={peers}
-      pendingOperations={
-        appState?.runtime.pendingOperations.map((operation) => ({
-          request_id: operation.request_id,
-          op_type: operation.op_type,
-          threshold: operation.threshold,
-          started_at: operation.started_at,
-          timeout_at: operation.timeout_at,
-          collected_responses: operation.collected_responses.length,
-          target_peers: operation.target_peers,
-        })) ?? []
-      }
-      logs={logs}
     />
   );
 
   if (embedded) return content;
 
-  return <PageLayout header={<AppHeader title="igloo-chrome" subtitle="browser signing device" />}>{content}</PageLayout>;
+  return <PageLayout header={<AppHeader mode="task" taskLabel="browser signing device" />}>{content}</PageLayout>;
 }

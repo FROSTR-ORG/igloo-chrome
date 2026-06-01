@@ -227,7 +227,7 @@ export default function OnboardingPage() {
     unlockProfileId ? profiles.find((profile) => profile.id === unlockProfileId) ?? null : null;
 
   return (
-    <PageLayout header={<AppHeader title="igloo-chrome" subtitle="browser signing device" />}>
+    <PageLayout header={<AppHeader mode="task" taskLabel="browser signing device" />}>
       {pendingConnect ? (
         <ContentCard
           title="Save Onboarded Device"
@@ -293,9 +293,9 @@ export default function OnboardingPage() {
                 return {
                   id: profile.id,
                   label: profile.label || 'Unnamed device',
-                  subtitle: shortProfileId(profile.id),
-                  statusLabel: isActive ? 'Active' : profile.unlocked ? 'Available' : 'Locked',
-                  loadLabel:
+                  shortId: shortProfileId(profile.id),
+                  state: isActive ? 'active' : profile.unlocked ? 'available' : 'locked',
+                  primaryActionLabel:
                     activatingProfileId === profile.id
                       ? profile.unlocked
                         ? 'Loading…'
@@ -303,6 +303,8 @@ export default function OnboardingPage() {
                       : isActive
                         ? 'Open Dashboard'
                         : 'Load Profile',
+                  destructiveActionLabel:
+                    deletingProfileId === profile.id ? 'Deleting…' : 'Delete Profile',
                 };
               })}
               selectedProfileId={selectedProfileId}
@@ -319,7 +321,6 @@ export default function OnboardingPage() {
               onDelete={(profileId) => void onDeleteStoredProfile(profileId)}
               loadDisabled={Boolean(activatingProfileId) || Boolean(deletingProfileId)}
               deleteDisabled={Boolean(activatingProfileId) || Boolean(deletingProfileId)}
-              deleteLabel={deletingProfileId === selectedProfile?.id ? 'Deleting…' : 'Delete Profile'}
               renderProfileDetail={(profile, isSelected) =>
                 selectedLockedProfile &&
                 selectedLockedProfile.id === profile.id &&

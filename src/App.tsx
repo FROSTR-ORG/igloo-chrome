@@ -17,7 +17,7 @@ function Router() {
 
   if (isHydratingProfile) {
     return (
-      <PageLayout header={<AppHeader title="igloo-chrome" subtitle="browser signing device" />}>
+      <PageLayout header={<AppHeader mode="task" taskLabel="browser signing device" />}>
         <ContentCard
           title="Restoring profile"
           description="Loading configured signer state from extension storage."

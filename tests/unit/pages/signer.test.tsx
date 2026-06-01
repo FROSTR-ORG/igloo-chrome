@@ -20,11 +20,13 @@ vi.mock('@/lib/observability', () => ({
 }));
 
 vi.mock('igloo-ui', () => ({
-  AppHeader: ({ title }: { title: string }) => <div>{title}</div>,
+  AppHeader: ({ taskLabel }: { taskLabel?: string }) => <div>{taskLabel}</div>,
   ContentCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   PageLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  OperatorSignerPanel: ({ runtimeError }: { runtimeError: string | null }) => (
-    <div data-testid="runtime-error">{runtimeError}</div>
+  // The redesigned panel takes a single `view` model; the saved-but-unavailable
+  // warning now surfaces through `view.relaySummary`.
+  OperatorSignerPanel: ({ view }: { view: { relaySummary: string } | null }) => (
+    <div data-testid="runtime-error">{view?.relaySummary ?? ''}</div>
   ),
 }));
 
