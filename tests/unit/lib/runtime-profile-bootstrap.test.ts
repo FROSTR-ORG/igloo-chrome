@@ -216,7 +216,7 @@ vi.mock('../../../../igloo-shared/src/bridge-wasm-runtime', () => {
   };
 });
 
-async function loadBrowserRuntimeCore() {
+async function loadRuntimeApi() {
   // igloo-shared's browser-runtime-core monolith was split in R2 (Bucket G.2);
   // the public runtime API now lives in runtime-api.ts.
   return await import('../../../../igloo-shared/src/runtime-api');
@@ -233,7 +233,7 @@ function attachLogBuffer(node: { on: (event: string, handler: (...args: unknown[
 }
 
 async function buildProfileNode() {
-  const { createSignerNode } = await loadBrowserRuntimeCore();
+  const { createSignerNode } = await loadRuntimeApi();
   const node = createSignerNode({
     mode: 'profile',
     relays: ['ws://127.0.0.1:4848'],
@@ -294,7 +294,7 @@ async function buildProfileNode() {
   return node;
 }
 
-describe('browser-runtime-core profile bootstrap', () => {
+describe('igloo-shared runtime profile bootstrap (chrome consumer)', () => {
   beforeEach(() => {
     vi.resetModules();
     mockState.bootstrapMode = 'seeded';
@@ -310,7 +310,7 @@ describe('browser-runtime-core profile bootstrap', () => {
   });
 
   test('seeds incoming peer nonces for profile bootstrap when a bootstrap peer is configured', async () => {
-    const { connectSignerNode, getRuntimeReadiness } = await loadBrowserRuntimeCore();
+    const { connectSignerNode, getRuntimeReadiness } = await loadRuntimeApi();
     const node = await buildProfileNode();
 
     try {
@@ -331,7 +331,7 @@ describe('browser-runtime-core profile bootstrap', () => {
 
   test('continues profile bootstrap when the bootstrap response contains no nonces', async () => {
     mockState.bootstrapMode = 'empty';
-    const { connectSignerNode, getRuntimeReadiness } = await loadBrowserRuntimeCore();
+    const { connectSignerNode, getRuntimeReadiness } = await loadRuntimeApi();
     const node = await buildProfileNode();
     const logs = attachLogBuffer(node);
 
@@ -352,7 +352,7 @@ describe('browser-runtime-core profile bootstrap', () => {
 
   test('continues profile bootstrap when bootstrap nonce fetch fails', async () => {
     mockState.bootstrapMode = 'publish_fail';
-    const { connectSignerNode, getRuntimeReadiness } = await loadBrowserRuntimeCore();
+    const { connectSignerNode, getRuntimeReadiness } = await loadRuntimeApi();
     const node = await buildProfileNode();
     const logs = attachLogBuffer(node);
 
