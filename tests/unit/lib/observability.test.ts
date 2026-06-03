@@ -5,19 +5,39 @@ describe('observability', () => {
     vi.resetModules();
   });
 
-  test('redacts sensitive fields when creating events', async () => {
+  test('keeps allow-listed fields and drops everything else (fail-closed)', async () => {
     vi.stubEnv('VITE_IGLOO_DEBUG', '1');
     const { createObservabilityEvent } = await import('@/lib/observability');
 
+    // The shared redactor (Bucket D) is an allow-list, not a marker-based
+    // deny-list: EVENT_SCHEMAS['relay']['probe_failed'] permits exactly
+    // ['relay', 'error_message']; any other field — including secret-bearing
+    // ones — is DROPPED (it never appears in the event), so it cannot leak.
+    const event = createObservabilityEvent('warn', 'test', 'relay', 'probe_failed', {
+      relay: 'ws://relay.example',
+      error_message: 'connect timeout',
+      password: 'secret-password',
+      runtimeSnapshotJson: '{"private":true}'
+    });
+
+    expect(event.relay).toBe('ws://relay.example');
+    expect(event.error_message).toBe('connect timeout');
+    // Dropped — undefined, NOT a redaction marker.
+    expect(event.password).toBeUndefined();
+    expect(event.runtimeSnapshotJson).toBeUndefined();
+  });
+
+  test('drops every field for an unregistered (domain, action) pair', async () => {
+    const { createObservabilityEvent } = await import('@/lib/observability');
+
+    // 'runtime'/'created' is not a registered schema entry -> fail closed.
     const event = createObservabilityEvent('info', 'test', 'runtime', 'created', {
       password: 'secret-password',
-      runtimeSnapshotJson: '{"private":true}',
       relay: 'ws://relay.example'
     });
 
-    expect(event.password).toBe('[redacted:password:len=15]');
-    expect(event.runtimeSnapshotJson).toBe('[redacted:runtimesnapshotjson:len=16]');
-    expect(event.relay).toBe('ws://relay.example');
+    expect(event.password).toBeUndefined();
+    expect(event.relay).toBeUndefined();
   });
 
   test('drops oldest events when the buffer limit is exceeded', async () => {

@@ -1,4 +1,4 @@
-import { getRuntimeSnapshot, type NodeWithEvents } from '@/lib/igloo';
+import { getRuntimeSnapshot, type BrowserBridgeNode } from '@/lib/igloo';
 
 const NONCE_SNAPSHOT_WAIT_TIMEOUT_MS = 5_000;
 const NONCE_SNAPSHOT_POLL_INTERVAL_MS = 100;
@@ -22,7 +22,7 @@ export function snapshotHasUsableNonces(snapshot: unknown) {
   });
 }
 
-export async function waitForNonceSnapshot(node: NodeWithEvents) {
+export async function waitForNonceSnapshot(node: BrowserBridgeNode) {
   const startedAt = Date.now();
   let lastSnapshot: unknown = null;
   while (Date.now() - startedAt < NONCE_SNAPSHOT_WAIT_TIMEOUT_MS) {

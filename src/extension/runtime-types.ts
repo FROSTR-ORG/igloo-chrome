@@ -1,3 +1,21 @@
+// Canonical runtime wire shapes are owned by igloo-shared. Re-export the
+// shapes that are byte-identical to the shared declarations so the extension's
+// UI/protocol code keeps importing them from `@/extension/protocol` while the
+// single source of truth lives in igloo-shared.
+import type {
+  RuntimePeerStatus,
+  RuntimeReadiness,
+  RuntimeStatusDetails,
+  RuntimePendingOperation,
+} from 'igloo-shared';
+
+export type {
+  RuntimePeerStatus,
+  RuntimeReadiness,
+  RuntimeStatusDetails,
+  RuntimePendingOperation,
+} from 'igloo-shared';
+
 export type PolicyOverrideValue = 'unset' | 'allow' | 'deny';
 
 export type RuntimeMethodPolicy = {
@@ -34,56 +52,12 @@ export type StoredPeerPolicy = {
 
 export type RuntimePhase = 'cold' | 'restoring' | 'ready' | 'degraded';
 
-export type RuntimeStatusDetails = {
-  device_id: string;
-  pending_ops: number;
-  last_active: number;
-  known_peers: number;
-  request_seq: number;
-};
-
-export type RuntimePendingOperation = {
-  op_type: string;
-  request_id: string;
-  started_at: number;
-  timeout_at: number;
-  target_peers: string[];
-  threshold: number;
-  collected_responses: unknown[];
-  context: unknown;
-};
-
-export type RuntimePeerStatus = {
-  idx: number;
-  pubkey: string;
-  known: boolean;
-  last_seen: number | null;
-  online: boolean;
-  incoming_available: number;
-  outgoing_available: number;
-  outgoing_spent: number;
-  can_sign: boolean;
-  should_send_nonces: boolean;
-};
-
 export type RuntimeMetadata = {
   device_id: string;
   member_idx: number;
   share_public_key: string;
   group_public_key: string;
   peers: string[];
-};
-
-export type RuntimeReadiness = {
-  runtime_ready: boolean;
-  restore_complete: boolean;
-  sign_ready: boolean;
-  ecdh_ready: boolean;
-  threshold: number;
-  signing_peer_count: number;
-  ecdh_peer_count: number;
-  last_refresh_at: number | null;
-  degraded_reasons: string[];
 };
 
 export type RuntimeStatusSummary = {
