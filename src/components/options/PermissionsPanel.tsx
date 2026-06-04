@@ -156,6 +156,8 @@ export function PermissionsPanel() {
           : undefined
       }
       peerClearAllLabel="Remove Overrides"
+      siteTitle="Site Policies"
+      peerTitle="Peer Policies"
       siteDescription="Permissions granted to websites through the NIP-07 style bridge."
       peerDescription="Live outbound and inbound peer policy state for the active signer runtime."
       peerEmptyText={
