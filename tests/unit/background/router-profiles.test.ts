@@ -24,7 +24,7 @@ vi.mock('@/extension/storage', () => ({
 
 import { COMMAND_TYPE } from '@/extension/protocol';
 import { createProfilesRouter } from '@/background/router-profiles';
-import { publicKeyFromSecret, setInjectedWasmProfileModuleForTests } from '@/lib/igloo';
+import { setInjectedWasmProfileModuleForTests } from '@/lib/igloo';
 
 function createProfilePayload() {
   return {
@@ -47,14 +47,11 @@ function createProfilePayload() {
 
 function createInjectedProfileModule() {
   const payload = createProfilePayload();
-  const sharePublicKey = publicKeyFromSecret(payload.device.shareSecret);
   return {
     bf_package_version: () => 1,
     bfshare_prefix: () => 'bfshare1',
     bfonboard_prefix: () => 'bfonboard1',
     bfprofile_prefix: () => 'bfprofile1',
-    profile_backup_event_kind: () => 30078,
-    profile_backup_key_domain: () => 'profile-backup',
     encode_bfshare_package: () => 'bfshare1encoded',
     decode_bfshare_package: () =>
       JSON.stringify({
@@ -76,23 +73,6 @@ function createInjectedProfileModule() {
         profileString: 'bfprofile1-generated',
         shareString: 'bfshare1-generated',
       }),
-    create_encrypted_profile_backup: () => JSON.stringify({ ciphertext: 'backup-ciphertext' }),
-    derive_profile_backup_conversation_key_hex: () => '44'.repeat(32),
-    encrypt_profile_backup_content: () => 'backup-ciphertext',
-    decrypt_profile_backup_content: () => JSON.stringify({}),
-    build_profile_backup_event: () => JSON.stringify({ id: 'backup-event' }),
-    parse_profile_backup_event: () =>
-      JSON.stringify({
-        version: 1,
-        device: {
-          name: payload.device.name,
-          sharePublicKey,
-          manualPeerPolicyOverrides: [],
-          relays: payload.device.relays,
-        },
-        groupPackage: payload.groupPackage,
-      }),
-    recover_profile_from_share_and_backup: () => JSON.stringify(payload),
   };
 }
 
