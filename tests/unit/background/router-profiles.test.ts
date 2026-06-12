@@ -2,22 +2,16 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const {
   clearUnlockedProfileKeys,
-  recoverProfileFromSharePackage,
   saveUnlockedProfileKey,
   setActiveProfileId,
   setRuntimeDesiredActive,
   updateActivationLifecycle,
 } = vi.hoisted(() => ({
   clearUnlockedProfileKeys: vi.fn(),
-  recoverProfileFromSharePackage: vi.fn(),
   saveUnlockedProfileKey: vi.fn(),
   setActiveProfileId: vi.fn(),
   setRuntimeDesiredActive: vi.fn(),
   updateActivationLifecycle: vi.fn(),
-}));
-
-vi.mock('../../../../igloo-shared/src/profile-backup-host.ts', () => ({
-  recoverProfileFromSharePackage,
 }));
 
 vi.mock('@/extension/storage', () => ({
@@ -106,32 +100,6 @@ describe('profiles router', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setInjectedWasmProfileModuleForTests(createInjectedProfileModule() as never);
-    recoverProfileFromSharePackage.mockResolvedValue({
-      share: {
-        shareSecret: createProfilePayload().device.shareSecret,
-        relays: createProfilePayload().device.relays,
-      },
-      backup: {
-        version: 1,
-        device: {
-          name: createProfilePayload().device.name,
-          sharePublicKey: publicKeyFromSecret(createProfilePayload().device.shareSecret),
-          manualPeerPolicyOverrides: [],
-          relays: createProfilePayload().device.relays,
-        },
-        groupPackage: createProfilePayload().groupPackage,
-      },
-      profile: createProfilePayload(),
-      event: {
-        id: 'backup-event',
-        pubkey: publicKeyFromSecret(createProfilePayload().device.shareSecret),
-        kind: 30078,
-        tags: [],
-        content: 'ciphertext',
-        created_at: 1,
-        sig: 'sig',
-      },
-    });
     setRuntimeDesiredActive.mockResolvedValue(undefined);
     updateActivationLifecycle.mockResolvedValue(undefined);
   });

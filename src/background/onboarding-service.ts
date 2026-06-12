@@ -175,7 +175,6 @@ export function createOnboardingService(input: {
         label,
         password,
         signerSettings: pendingProfile.signerSettings,
-        publishBackup: false,
         runtimeSnapshotJson: pendingProfile.runtimeSnapshotJson ?? null,
         peerPubkey: pendingProfile.peerPubkey ?? null,
         autoStart: true,
@@ -264,7 +263,6 @@ export function createOnboardingService(input: {
       connectedProfilePayload: pendingProfile.profilePayload,
       password: sessionKeyB64,
       signerSettings: target.payload.signerSettings,
-      publishBackup: false,
       runtimeSnapshotJson:
         pendingProfile.runtimeSnapshotJson ?? target.payload.runtimeSnapshotJson ?? null,
       peerPubkey: pendingProfile.peerPubkey ?? target.payload.peerPubkey ?? null,

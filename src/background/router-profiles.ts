@@ -46,7 +46,6 @@ export function createProfilesRouter(
     let persistedProfileId: string | null = null;
     return {
       signerSettings: normalizeSignerSettings(),
-      publishBackup: false,
       autoStart: true,
       persistProfile: async ({
         finalized,
