@@ -2,7 +2,7 @@
 // Embedded SHA-384 of bifrost_bridge_wasm_bg.wasm + bifrost_bridge_wasm.js captured at build time.
 import init, * as wasm from './bifrost_bridge_wasm.js';
 
-const EXPECTED_WASM_SHA384 = 'sha384-xLbcCXXQM5616RCoCgWkPZ0Gcbbo4I10iJhzGXbBHOKUHK0cFc/VqriZizDydQNP';
+const EXPECTED_WASM_SHA384 = 'sha384-aO3oQUnqCjer84xHWrJYzkpGRnePZxLZBa+AvacZDQMOifGmdRYugpo0gsVKnMZz';
 const EXPECTED_JS_SHA384 = 'sha384-xAaSceZlWk+mGIVyH0m3ZUTmBo+6GXn6tlELvCohQDFk2M/fYycPiOM24diIqy3N';
 
 async function sha384Base64(buf) {

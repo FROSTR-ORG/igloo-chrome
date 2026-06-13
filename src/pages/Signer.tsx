@@ -31,6 +31,20 @@ function toEventRow(event: ObservabilityEvent): EventLogRowModel {
   };
 }
 
+// Capability/latency/sparkline telemetry defaults for peers known only from a
+// saved policy or the roster — real values come from the live `summary.peers`.
+const EMPTY_PEER_TELEMETRY = {
+  canSign: false,
+  canEcdh: false,
+  canPing: false,
+  lastResponseLatencyMs: null,
+  avgLatencyMs: null,
+  nonceSeries: [],
+} satisfies Pick<
+  PeerReadinessRowModel,
+  'canSign' | 'canEcdh' | 'canPing' | 'lastResponseLatencyMs' | 'avgLatencyMs' | 'nonceSeries'
+>;
+
 function derivePeers(
   summary: RuntimeStatusSummary | null,
   savedPolicies: StoredPeerPolicy[],
@@ -44,6 +58,7 @@ function derivePeers(
       pubkey: saved.pubkey.toLowerCase(),
       state: 'offline',
       statusLabel: 'offline',
+      ...EMPTY_PEER_TELEMETRY,
     });
   }
 
@@ -56,6 +71,7 @@ function derivePeers(
       pubkey: normalized,
       state: 'idle',
       statusLabel: 'known',
+      ...EMPTY_PEER_TELEMETRY,
     });
   }
 
@@ -71,6 +87,12 @@ function derivePeers(
       incomingAvailable: peer.incoming_available,
       outgoingAvailable: peer.outgoing_available,
       outgoingSpent: peer.outgoing_spent,
+      canSign: peer.can_sign,
+      canEcdh: peer.can_ecdh,
+      canPing: peer.can_ping,
+      lastResponseLatencyMs: peer.last_response_latency_ms,
+      avgLatencyMs: peer.avg_latency_ms,
+      nonceSeries: peer.nonce_history.map((point) => ({ ts: point.ts, held: point.held })),
     });
   }
 
