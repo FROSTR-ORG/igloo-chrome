@@ -18,6 +18,30 @@ const trackedWasmDir = path.join(publicDir, 'wasm');
 const sourceCss = path.join(rootDir, 'src/index.css');
 const distCss = path.join(distDir, 'index.css');
 
+// esbuild has no `dedupe` (a Vite/rollup concept). igloo-shared is bundled from
+// source under preserveSymlinks, so it resolves its own nested nostr-tools while
+// the extension resolves another — two instances split the module-level
+// singletons (useWebSocketImplementation / SimplePool relay pools). Re-run
+// esbuild's own resolver anchored at this package's root so every nostr-tools
+// import (incl. the `nostr-tools/pure` subpath) collapses to ONE copy. We defer
+// to build.resolve rather than require.resolve so the browser/import export
+// conditions are preserved (require.resolve would pick the node build).
+const dedupeNostrTools = {
+  name: 'dedupe-nostr-tools',
+  setup(build) {
+    build.onResolve({ filter: /^nostr-tools(\/.*)?$/ }, async (args) => {
+      if (args.pluginData?.dedupedNostrTools) return null;
+      const resolved = await build.resolve(args.path, {
+        kind: args.kind,
+        resolveDir: rootDir,
+        pluginData: { dedupedNostrTools: true },
+      });
+      if (resolved.errors.length > 0) return { errors: resolved.errors };
+      return { path: resolved.path, external: resolved.external };
+    });
+  },
+};
+
 const assetLoaders = {
   '.png': 'file',
   '.woff': 'file',
@@ -106,6 +130,7 @@ async function bundleBrowserEntry(entryPoint, outfile, format = 'esm') {
     tsconfig: path.join(rootDir, 'tsconfig.json'),
     logLevel: 'silent',
     loader: assetLoaders,
+    plugins: [dedupeNostrTools],
     alias: {
       '@': path.join(rootDir, 'src'),
       react: path.join(reactRoot, 'index.js'),
