@@ -307,4 +307,60 @@ describe('runtime-host controller', () => {
       expect(session.persistInFlight).toBeNull();
     });
   });
+
+  // Recovery invariants: when the service worker is mid-bootstrap (e.g. just
+  // restarted and re-attaching the signer), reads from other contexts must wait
+  // for the in-flight bootstrap rather than observe a stale "cold" / "not
+  // active" runtime. These lock in the await-on-pending-promise guard.
+  test('a status query during an in-flight bootstrap awaits it instead of reporting stale cold', async () => {
+    let releaseConnect: (() => void) | null = null;
+    connectSignerNode.mockReturnValue(
+      new Promise<void>((resolve) => {
+        releaseConnect = () => resolve();
+      })
+    );
+    const controller = createRuntimeHostController();
+
+    // Kick off bootstrap but do not await it; block it inside connect.
+    const ensurePromise = controller.ensureRuntime(profile as never, undefined, 'session-key');
+    await vi.waitFor(() => expect(connectSignerNode).toHaveBeenCalledTimes(1));
+
+    // Reads issued while the bootstrap is still connecting.
+    const statusPromise = controller.getRuntimeStatusSnapshot();
+    const sessionPromise = controller._private.requireSession();
+
+    releaseConnect?.();
+    await ensurePromise;
+
+    const status = await statusPromise;
+    expect(status.runtime).not.toBe('cold');
+    expect(status.runtime).toBe('ready');
+    // requireSession resolves to the booted session rather than throwing.
+    await expect(sessionPromise).resolves.toMatchObject({ profileId: 'profile-1' });
+  });
+
+  test('a same-profile ensure during an in-flight bootstrap reuses the single in-flight session', async () => {
+    let releaseConnect: (() => void) | null = null;
+    connectSignerNode.mockReturnValue(
+      new Promise<void>((resolve) => {
+        releaseConnect = () => resolve();
+      })
+    );
+    const controller = createRuntimeHostController();
+
+    const first = controller.ensureRuntime(profile as never, undefined, 'session-key');
+    // Once the first call has set the in-flight session promise (it is now
+    // blocked inside connect), a second ensure for the same profile must dedupe.
+    await vi.waitFor(() => expect(connectSignerNode).toHaveBeenCalledTimes(1));
+    const second = controller.ensureRuntime(profile as never, undefined, 'session-key');
+
+    releaseConnect?.();
+    await Promise.all([first, second]);
+
+    // Single-flight: exactly one node was created and connected for both callers.
+    expect(createSignerNode).toHaveBeenCalledTimes(1);
+    expect(connectSignerNode).toHaveBeenCalledTimes(1);
+    const sessionA = await controller._private.requireSession();
+    expect(sessionA.profileId).toBe('profile-1');
+  });
 });
