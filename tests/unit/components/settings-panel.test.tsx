@@ -49,10 +49,10 @@ describe('chrome settings panel', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'copy profile' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'copy share' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export Profile' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export Share' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'rotate share' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'logout' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Logout' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /wipe all data/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /reset/i })).not.toBeInTheDocument();
   });

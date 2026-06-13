@@ -7,8 +7,11 @@ export default defineConfig({
   resolve: {
     // Mirror the app build: collapse nostr-tools to a single instance so
     // igloo-shared (consumed from source) and chrome share one SimplePool /
-    // useWebSocketImplementation singleton under test.
-    dedupe: ['nostr-tools'],
+    // useWebSocketImplementation singleton under test. react/react-dom are
+    // deduped too so igloo-ui (resolved here to its built dist, which imports
+    // react) shares chrome's single React — otherwise hook-using igloo-ui
+    // components (e.g. ExportPackageModal) hit "invalid hook call" under test.
+    dedupe: ['react', 'react-dom', 'nostr-tools'],
     alias: {
       '@': path.resolve(__dirname, 'src')
     }

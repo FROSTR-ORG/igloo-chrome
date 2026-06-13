@@ -1,5 +1,13 @@
 import * as React from 'react';
-import { Button, ContentCard, CRITICAL_E2E_TEST_IDS, Input, OperatorSettingsPanel, Textarea } from 'igloo-ui';
+import {
+  Button,
+  ContentCard,
+  CRITICAL_E2E_TEST_IDS,
+  ExportPackageModal,
+  Input,
+  OperatorSettingsPanel,
+  Textarea,
+} from 'igloo-ui';
 import type { PendingOnboardingProfile, StoredExtensionProfile } from '@/extension/protocol';
 import { DEFAULT_RELAYS, groupPublicKeyFromPackage, normalizeRelays } from '@/lib/igloo';
 import {
@@ -19,6 +27,20 @@ type SettingsPanelProps = {
   logout: () => Promise<void>;
 };
 
+// Anchor-based text download for the options page (no shared file-save helper in
+// the extension). Browser-only.
+function downloadText(filename: string, text: string) {
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function SettingsPanel({
   profile,
   saveProfile,
@@ -35,7 +57,10 @@ export function SettingsPanel({
   const [settings, setSettings] = React.useState<SignerSettings>(
     normalizeSignerSettings(profile?.signerSettings)
   );
-  const [exportPassword, setExportPassword] = React.useState('');
+  const [exportModalFormat, setExportModalFormat] = React.useState<'bfprofile' | 'bfshare' | null>(null);
+  const [exportResult, setExportResult] = React.useState<string | null>(null);
+  const [exportBusy, setExportBusy] = React.useState(false);
+  const [exportError, setExportError] = React.useState<string | null>(null);
   const [rotatePackage, setRotatePackage] = React.useState('');
   const [rotatePassword, setRotatePassword] = React.useState('');
   const [pendingRotation, setPendingRotation] = React.useState<PendingOnboardingProfile | null>(null);
@@ -153,18 +178,28 @@ export function SettingsPanel({
     }
   };
 
-  const handleCopyPackage = async (format: 'bfprofile' | 'bfshare') => {
-    if (!exportPassword.trim()) {
-      throw new Error('Package password is required.');
-    }
-    const packageText = await copyProfilePackage(format, exportPassword);
-    if (!navigator.clipboard?.writeText) {
-      throw new Error('Clipboard access is unavailable.');
-    }
-    await navigator.clipboard.writeText(packageText);
+  const openExportModal = (format: 'bfprofile' | 'bfshare') => {
+    setExportModalFormat(format);
+    setExportResult(null);
+    setExportError(null);
+  };
+  const closeExportModal = () => {
+    setExportModalFormat(null);
+    setExportResult(null);
+    setExportError(null);
+  };
+  const runExport = (password: string) => {
+    if (!exportModalFormat) return;
+    setExportBusy(true);
+    setExportError(null);
+    void copyProfilePackage(exportModalFormat, password)
+      .then((value) => setExportResult(value))
+      .catch((err: unknown) => setExportError(err instanceof Error ? err.message : 'Export failed.'))
+      .finally(() => setExportBusy(false));
   };
 
   return (
+    <>
     <OperatorSettingsPanel
       hasProfile={Boolean(profile)}
       signerName={signerName}
@@ -186,43 +221,38 @@ export function SettingsPanel({
       saving={saving}
       message={message}
       maintenanceDescription="Extension package export, share rotation, and session controls."
-      maintenanceActions={[
+      sections={[
         {
-          label: 'copy profile',
+          title: 'Export Profile',
+          description: 'Password-protected bfprofile package.',
+          actionLabel: 'Export Profile',
+          testId: CRITICAL_E2E_TEST_IDS.settingsCopyProfile,
           variant: 'secondary',
           disabled: !profile,
-          onClick: () => void runAction(() => handleCopyPackage('bfprofile'), 'profile copied to clipboard'),
+          onAction: () => openExportModal('bfprofile'),
         },
         {
-          label: 'copy share',
+          title: 'Export Share',
+          description: 'Password-protected bfshare package.',
+          actionLabel: 'Export Share',
+          testId: CRITICAL_E2E_TEST_IDS.settingsCopyShare,
           variant: 'secondary',
           disabled: !profile,
-          onClick: () => void runAction(() => handleCopyPackage('bfshare'), 'share copied to clipboard'),
+          onAction: () => openExportModal('bfshare'),
         },
         {
-          label: 'logout',
+          title: 'Logout',
+          description: 'Return to the profile list to open another profile.',
+          actionLabel: 'Logout',
+          testId: CRITICAL_E2E_TEST_IDS.settingsLogout,
           variant: 'outline',
           disabled: !profile,
-          onClick: () => void runAction(() => logout(), 'Logged out of active profile'),
+          onAction: () => void runAction(() => logout(), 'Logged out of active profile'),
         },
       ]}
       extraSections={
         profile ? (
           <>
-            <ContentCard
-              title="Export Password"
-              description="Used to protect copied profile and share packages."
-            >
-              <label className="block">
-                <div className="text-xs uppercase tracking-wide text-gray-500">Package Password</div>
-                <Input
-                  className="mt-2"
-                  type="password"
-                  value={exportPassword}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => setExportPassword(event.target.value)}
-                />
-              </label>
-            </ContentCard>
             <ContentCard
               title="rotate share"
               description="Apply a rotated bfonboard package to replace this device share while preserving the same keyset."
@@ -305,5 +335,28 @@ export function SettingsPanel({
         ) : null
       }
     />
+      <ExportPackageModal
+        open={Boolean(exportModalFormat)}
+        onClose={closeExportModal}
+        title={exportModalFormat === 'bfshare' ? 'Export Share' : 'Export Profile'}
+        description={
+          exportModalFormat === 'bfshare'
+            ? "Create a password-protected bfshare package. You'll need this password to restore on another device."
+            : "Create an encrypted backup of your share and configuration. You'll need this password to restore on another device."
+        }
+        summary={profile ? `${profile.groupName ?? 'Device'} · group ${(profile.groupPublicKey ?? '').slice(0, 16)}…` : ''}
+        result={exportResult}
+        busy={exportBusy}
+        error={exportError}
+        onExport={runExport}
+        onCopy={(value) => {
+          if (navigator.clipboard?.writeText) void navigator.clipboard.writeText(value);
+        }}
+        onDownload={(value) => {
+          const filename = exportModalFormat === 'bfshare' ? 'igloo-share.bfshare.txt' : 'igloo-profile.bfprofile.txt';
+          downloadText(filename, value);
+        }}
+      />
+    </>
   );
 }
