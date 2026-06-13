@@ -8,6 +8,7 @@ import {
   Input,
   Label,
   PageLayout,
+  PasswordField,
   ProfileConfirmationCard,
   StoredProfilesLandingCard,
   Textarea
@@ -257,8 +258,7 @@ export default function OnboardingPage() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-sm text-blue-300">Local Profile Password</Label>
-                <Input
-                  type="password"
+                <PasswordField
                   placeholder="Minimum 8 characters"
                   value={localProfilePassword}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setLocalProfilePassword(e.target.value)}
@@ -334,8 +334,7 @@ export default function OnboardingPage() {
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-sm text-blue-300">Profile Password</Label>
-                      <Input
-                        type="password"
+                      <PasswordField
                         placeholder="Enter profile password"
                         value={unlockPassword}
                         onChange={(e: ChangeEvent<HTMLInputElement>) => setUnlockPassword(e.target.value)}
@@ -395,8 +394,7 @@ export default function OnboardingPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-sm text-blue-300">Package Password</Label>
-                  <Input
-                    type="password"
+                  <PasswordField
                     placeholder="Minimum 8 characters"
                     value={bfprofilePassword}
                     onChange={(e: ChangeEvent<HTMLInputElement>) => setBfprofilePassword(e.target.value)}
@@ -434,8 +432,7 @@ export default function OnboardingPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-sm text-blue-300">Package Password</Label>
-                  <Input
-                    type="password"
+                  <PasswordField
                     placeholder="Minimum 8 characters"
                     value={onboardPassword}
                     onChange={(e: ChangeEvent<HTMLInputElement>) => setOnboardPassword(e.target.value)}
