@@ -1,6 +1,7 @@
 import * as React from 'react';
 import {
   AppHeader,
+  buildPeerReadinessRows,
   ContentCard,
   OperatorSignerPanel,
   PageLayout,
@@ -31,72 +32,15 @@ function toEventRow(event: ObservabilityEvent): EventLogRowModel {
   };
 }
 
-// Capability/latency/sparkline telemetry defaults for peers known only from a
-// saved policy or the roster — real values come from the live `summary.peers`.
-const EMPTY_PEER_TELEMETRY = {
-  canSign: false,
-  canEcdh: false,
-  canPing: false,
-  lastResponseLatencyMs: null,
-  avgLatencyMs: null,
-  nonceSeries: [],
-} satisfies Pick<
-  PeerReadinessRowModel,
-  'canSign' | 'canEcdh' | 'canPing' | 'lastResponseLatencyMs' | 'avgLatencyMs' | 'nonceSeries'
->;
-
 function derivePeers(
   summary: RuntimeStatusSummary | null,
   savedPolicies: StoredPeerPolicy[],
 ): PeerReadinessRowModel[] {
-  const base = new Map<string, PeerReadinessRowModel>();
-
-  for (const [index, saved] of normalizeStoredPeerPolicies(savedPolicies).entries()) {
-    base.set(saved.pubkey.toLowerCase(), {
-      id: saved.pubkey.toLowerCase(),
-      alias: `Peer ${index + 1}`,
-      pubkey: saved.pubkey.toLowerCase(),
-      state: 'offline',
-      statusLabel: 'offline',
-      ...EMPTY_PEER_TELEMETRY,
-    });
-  }
-
-  for (const [index, peer] of (summary?.metadata.peers ?? []).entries()) {
-    const normalized = peer.toLowerCase();
-    const existing = base.get(normalized);
-    base.set(normalized, {
-      id: normalized,
-      alias: existing?.alias ?? `Peer ${index + 1}`,
-      pubkey: normalized,
-      state: 'idle',
-      statusLabel: 'known',
-      ...EMPTY_PEER_TELEMETRY,
-    });
-  }
-
-  for (const peer of summary?.peers ?? []) {
-    const normalized = peer.pubkey.toLowerCase();
-    const existing = base.get(normalized);
-    base.set(normalized, {
-      id: normalized,
-      alias: existing?.alias ?? `Peer ${peer.idx}`,
-      pubkey: normalized,
-      state: peer.can_sign ? 'warning' : peer.online ? 'online' : peer.known ? 'idle' : 'offline',
-      statusLabel: peer.can_sign ? 'sign-ready' : peer.online ? 'online' : peer.known ? 'known' : 'offline',
-      incomingAvailable: peer.incoming_available,
-      outgoingAvailable: peer.outgoing_available,
-      outgoingSpent: peer.outgoing_spent,
-      canSign: peer.can_sign,
-      canEcdh: peer.can_ecdh,
-      canPing: peer.can_ping,
-      lastResponseLatencyMs: peer.last_response_latency_ms,
-      avgLatencyMs: peer.avg_latency_ms,
-      nonceSeries: peer.nonce_history.map((point) => ({ ts: point.ts, held: point.held })),
-    });
-  }
-
-  return Array.from(base.values()).sort((a, b) => a.pubkey.localeCompare(b.pubkey));
+  return buildPeerReadinessRows({
+    peers: summary?.peers ?? [],
+    rosterPubkeys: summary?.metadata.peers ?? [],
+    policyPubkeys: normalizeStoredPeerPolicies(savedPolicies).map((policy) => policy.pubkey),
+  });
 }
 
 export function SignerPanel({ embedded = false }: { embedded?: boolean }) {

@@ -23,6 +23,7 @@ vi.mock('igloo-ui', () => ({
   AppHeader: ({ taskLabel }: { taskLabel?: string }) => <div>{taskLabel}</div>,
   ContentCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   PageLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  buildPeerReadinessRows: () => [],
   // The redesigned panel takes a single `view` model; the saved-but-unavailable
   // warning now surfaces through `view.relaySummary`.
   OperatorSignerPanel: ({ view }: { view: { relaySummary: string } | null }) => (
