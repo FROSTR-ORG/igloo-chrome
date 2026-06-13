@@ -6,6 +6,12 @@ import {
   type StoredPeerPolicy,
 } from '@/extension/protocol';
 
+// Fail-closed fallback used only when a runtime policy observation is ABSENT or
+// unparseable — an unknown observation is treated as deny, never allow. This is
+// deliberately NOT the product default-permission posture: a real group member's
+// effective policy comes from the runtime (bifrost-core MethodPolicy::default(),
+// which is permissive — see docs/PROTOCOL.md "Default Peer Permissions"). Do not
+// "align" this to all-true; that would mean inventing allow from missing data.
 const DEFAULT_METHOD_POLICY: RuntimeMethodPolicy = {
   ping: false,
   onboard: false,
