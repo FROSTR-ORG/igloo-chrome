@@ -11,6 +11,7 @@ import {
   prepareSign as prepareWorkerSign,
   readRuntimeConfig,
   refreshAllPeers,
+  resolveRuntimeApproval,
   updateRuntimeConfig as updateWorkerRuntimeConfig,
   updateRuntimePeerPolicy,
 } from '@/lib/extension-runtime-host';
@@ -184,7 +185,7 @@ export function createRuntimeMutations(input: {
 
   async function updatePeerPolicy(
     pubkey: string,
-    patch: { direction: 'request' | 'respond'; method: 'ping' | 'onboard' | 'sign' | 'ecdh'; value: 'unset' | 'allow' | 'deny' }
+    patch: { direction: 'request' | 'respond'; method: 'ping' | 'onboard' | 'sign' | 'ecdh'; value: 'unset' | 'allow' | 'deny' | 'ask' }
   ): Promise<RuntimeServiceResult<RuntimePeerPolicyResult>> {
     try {
       await ensureDesiredRuntimeAccess('update_runtime_peer_policy');
@@ -221,6 +222,25 @@ export function createRuntimeMutations(input: {
     }
   }
 
+  async function resolveApproval(
+    requestId: string,
+    approved: boolean
+  ): Promise<RuntimeServiceResult<{ resolved: boolean }>> {
+    try {
+      await ensureDesiredRuntimeAccess('resolve_runtime_approval');
+      await resolveRuntimeApproval(requestId, approved);
+      await publishStateChanged();
+      return runtimeServiceOk({ resolved: true });
+    } catch (error) {
+      const serviceError = asRuntimeServiceError(
+        error,
+        'runtime_resolve_approval_failed',
+        'Failed to resolve approval request'
+      );
+      return runtimeServiceError(serviceError.code, serviceError.message, { cause: serviceError.cause });
+    }
+  }
+
   async function getDiagnostics(): Promise<RuntimeDiagnosticsEnvelope> {
     return {
       diagnostics: await getRuntimeDiagnosticsSnapshot(),
@@ -234,6 +254,7 @@ export function createRuntimeMutations(input: {
     readConfiguredRuntimeConfig,
     refreshPeers,
     prepareRuntime,
+    resolveApproval,
     updatePeerPolicy,
     updateRuntimeConfig,
   };

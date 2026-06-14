@@ -61,6 +61,7 @@ export function createRuntimeService(input: RuntimeServiceDependencies) {
     readConfiguredRuntimeConfig: mutations.readConfiguredRuntimeConfig,
     refreshPeers: mutations.refreshPeers,
     reloadConfiguredRuntime: lifecycle.reloadConfiguredRuntime,
+    resolveApproval: mutations.resolveApproval,
     startRuntime: lifecycle.startRuntime,
     stopRuntime: lifecycle.stopRuntime,
     updatePeerPolicy: mutations.updatePeerPolicy,

@@ -24,6 +24,7 @@ import {
   type RuntimeDiagnosticsSnapshot,
   type RuntimePeerPolicyClearOverridesMessage,
   type RuntimePeerPolicyUpdateMessage,
+  type RuntimeResolveApprovalMessage,
   type RuntimePrepareMessage,
   type RuntimePrepareOperation,
   type RuntimeStartMessage,
@@ -127,6 +128,18 @@ export async function clearRuntimePeerPolicyOverrides(): Promise<StoredPeerPolic
     type: COMMAND_TYPE.RUNTIME_PEER_POLICY_CLEAR_OVERRIDES
   };
   return await sendMessage(payload, 'Failed to clear runtime peer policy overrides');
+}
+
+export async function resolveRuntimeApproval(
+  requestId: string,
+  approved: boolean
+): Promise<boolean> {
+  const payload: RuntimeResolveApprovalMessage = {
+    type: COMMAND_TYPE.RUNTIME_RESOLVE_APPROVAL,
+    requestId,
+    approved
+  };
+  return await sendMessage(payload, 'Failed to resolve approval request');
 }
 
 export async function startOnboarding(

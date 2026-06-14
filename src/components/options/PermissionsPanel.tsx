@@ -78,7 +78,7 @@ export function PermissionsPanel() {
       pubkey: string,
       direction: 'request' | 'respond',
       method: 'ping' | 'onboard' | 'sign' | 'ecdh',
-      value: 'unset' | 'allow' | 'deny'
+      value: 'unset' | 'allow' | 'deny' | 'ask'
     ) => {
       setLoading(true);
       try {

@@ -26,7 +26,7 @@ export function createRuntimeRouter(
         !patch ||
         (patch.direction !== 'request' && patch.direction !== 'respond') ||
         !['ping', 'onboard', 'sign', 'ecdh'].includes(String(patch.method)) ||
-        !['unset', 'allow', 'deny'].includes(String(patch.value))
+        !['unset', 'allow', 'deny', 'ask'].includes(String(patch.value))
       ) {
         sendResponse(responseError(new Error('Invalid runtime peer policy update payload')));
         return true;
@@ -46,6 +46,16 @@ export function createRuntimeRouter(
         .then((result) =>
           sendResponse(result.ok ? responseOk(result.value.peerPermissionStates) : responseError(result.error))
         );
+      return true;
+    },
+    [COMMAND_TYPE.RUNTIME_RESOLVE_APPROVAL]: (message, sendResponse) => {
+      const requestId = typeof message.requestId === 'string' ? message.requestId : '';
+      if (!requestId || typeof message.approved !== 'boolean') {
+        sendResponse(responseError(new Error('Invalid resolve approval payload')));
+        return true;
+      }
+      void runtimeService.resolveApproval(requestId, message.approved)
+        .then((result) => sendResponse(result.ok ? responseOk(result.value.resolved) : responseError(result.error)));
       return true;
     },
     [COMMAND_TYPE.RUNTIME_START]: (_message, sendResponse) => {

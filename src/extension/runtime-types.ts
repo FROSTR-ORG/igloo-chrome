@@ -7,6 +7,7 @@ import type {
   RuntimeReadiness,
   RuntimeStatusDetails,
   RuntimePendingOperation,
+  RuntimePendingApproval,
 } from 'igloo-shared';
 
 export type {
@@ -14,9 +15,10 @@ export type {
   RuntimeReadiness,
   RuntimeStatusDetails,
   RuntimePendingOperation,
+  RuntimePendingApproval,
 } from 'igloo-shared';
 
-export type PolicyOverrideValue = 'unset' | 'allow' | 'deny';
+export type PolicyOverrideValue = 'unset' | 'allow' | 'deny' | 'ask';
 
 export type RuntimeMethodPolicy = {
   ping: boolean;
@@ -67,6 +69,7 @@ export type RuntimeStatusSummary = {
   peers: RuntimePeerStatus[];
   peer_permission_states: StoredPeerPolicy[];
   pending_operations: RuntimePendingOperation[];
+  pending_approvals?: RuntimePendingApproval[];
 };
 
 export type RuntimeLifecycleStatus = {

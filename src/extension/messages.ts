@@ -20,6 +20,7 @@ export const COMMAND_TYPE = {
   RUNTIME_CONFIG_UPDATE: 'ext.runtime.config.update',
   RUNTIME_PEER_POLICY_UPDATE: 'ext.runtime.peerPolicy.update',
   RUNTIME_PEER_POLICY_CLEAR_OVERRIDES: 'ext.runtime.peerPolicy.clearOverrides',
+  RUNTIME_RESOLVE_APPROVAL: 'ext.runtime.resolveApproval',
   PROVIDER_REQUEST: 'ext.provider.request',
   PROMPTS_RESPOND: 'ext.prompts.respond',
   UI_OPEN_DASHBOARD: 'ext.ui.openDashboard',
@@ -176,6 +177,12 @@ export type RuntimePeerPolicyClearOverridesMessage = {
   type: typeof COMMAND_TYPE.RUNTIME_PEER_POLICY_CLEAR_OVERRIDES;
 };
 
+export type RuntimeResolveApprovalMessage = {
+  type: typeof COMMAND_TYPE.RUNTIME_RESOLVE_APPROVAL;
+  requestId: string;
+  approved: boolean;
+};
+
 export type ProviderRequestMessage = {
   type: typeof COMMAND_TYPE.PROVIDER_REQUEST;
   request: ProviderRequestEnvelope;
@@ -220,6 +227,7 @@ export type ExtensionCommand =
   | RuntimeConfigUpdateMessage
   | RuntimePeerPolicyUpdateMessage
   | RuntimePeerPolicyClearOverridesMessage
+  | RuntimeResolveApprovalMessage
   | ProviderRequestMessage
   | PromptResponseMessage
   | UiOpenDashboardMessage
@@ -289,6 +297,7 @@ export type ExtensionCommandResultByType = {
   [COMMAND_TYPE.RUNTIME_CONFIG_UPDATE]: SignerSettings;
   [COMMAND_TYPE.RUNTIME_PEER_POLICY_UPDATE]: StoredPeerPolicy[];
   [COMMAND_TYPE.RUNTIME_PEER_POLICY_CLEAR_OVERRIDES]: StoredPeerPolicy[];
+  [COMMAND_TYPE.RUNTIME_RESOLVE_APPROVAL]: boolean;
   [COMMAND_TYPE.PROVIDER_REQUEST]: unknown;
   [COMMAND_TYPE.PROMPTS_RESPOND]: boolean;
   [COMMAND_TYPE.UI_OPEN_DASHBOARD]: boolean;

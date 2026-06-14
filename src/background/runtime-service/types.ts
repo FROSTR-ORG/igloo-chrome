@@ -88,6 +88,7 @@ export type RuntimeServiceErrorCode =
   | 'runtime_prepare_failed'
   | 'runtime_update_failed'
   | 'runtime_peer_policy_failed'
+  | 'runtime_resolve_approval_failed'
   | 'runtime_provider_failed';
 
 export class RuntimeServiceError extends Error {

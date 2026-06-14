@@ -2,6 +2,7 @@ import * as React from 'react';
 import {
   AppHeader,
   buildPeerReadinessRows,
+  buildPendingApprovalRows,
   ContentCard,
   OperatorSignerPanel,
   PageLayout,
@@ -44,7 +45,16 @@ function derivePeers(
 }
 
 export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
-  const { appState, loadRuntimeDiagnostics, profile, refreshRuntimePeers, startRuntime, stopRuntime } = useStore();
+  const {
+    appState,
+    loadRuntimeDiagnostics,
+    profile,
+    refreshRuntimePeers,
+    resolveApproval,
+    startRuntime,
+    stopRuntime,
+    updatePeerPolicy,
+  } = useStore();
   const [copiedField, setCopiedField] = React.useState<'group' | 'share' | null>(null);
   const [eventRows, setEventRows] = React.useState<EventLogRowModel[]>([]);
   const [actionError, setActionError] = React.useState<string | null>(null);
@@ -153,6 +163,11 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
       responseLabel: `${operation.collected_responses.length} of ${operation.target_peers.length}`,
     })) ?? [];
 
+  const pendingApprovalRows = buildPendingApprovalRows({
+    approvals: appState?.runtime.summary?.pending_approvals ?? [],
+    peerAliases: Object.fromEntries(peers.map((row) => [row.pubkey, row.alias])),
+  });
+
   const view: SignerDashboardViewModel = {
     profileName: profile.groupName || 'Unnamed signer',
     thresholdLabel: peers.length ? `${peers.length} peers` : 'no peers',
@@ -161,8 +176,24 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
     readinessLabel: runtimeSummaryLabel,
     relaySummary: displayRuntimeError ?? (isSignerRunning ? 'Runtime connected' : 'Runtime stopped'),
     peerRows: peers,
+    pendingApprovalRows,
     pendingOperationRows,
     eventRows,
+  };
+
+  const handleAlwaysAllow = (id: string) => {
+    const row = pendingApprovalRows.find((approval) => approval.id === id);
+    if (!row) return;
+    // Approve this request, then persist an Allow override so future requests
+    // for this peer+method skip the queue.
+    void (async () => {
+      try {
+        await resolveApproval(id, true);
+        await updatePeerPolicy(row.pubkey, { direction: 'respond', method: row.method, value: 'allow' });
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : String(error));
+      }
+    })();
   };
 
   const content = (
@@ -178,6 +209,9 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
       primaryActionDisabled={isConnecting}
       onRefreshPeers={() => void handleRefreshPeers()}
       refreshPeersDisabled={!isSignerRunning}
+      onApproveOnce={(id) => void resolveApproval(id, true)}
+      onDenyApproval={(id) => void resolveApproval(id, false)}
+      onAlwaysAllow={handleAlwaysAllow}
     />
   );
 

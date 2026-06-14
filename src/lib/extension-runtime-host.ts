@@ -53,6 +53,12 @@ export async function updateRuntimePeerPolicy(
 export async function clearRuntimePeerPolicyOverrides(): Promise<RuntimeStatusSnapshot['status']> {
   return adaptRuntimeStatusSummary(await runtimeHost.clearRuntimePeerPolicyOverrides());
 }
+export async function resolveRuntimeApproval(
+  requestId: string,
+  approved: boolean
+): Promise<RuntimeStatusSnapshot['status']> {
+  return adaptRuntimeStatusSummary(await runtimeHost.resolveRuntimeApproval(requestId, approved));
+}
 export const refreshAllPeers = runtimeHost.refreshAllPeers;
 export const prepareSign = runtimeHost.prepareSign;
 export const prepareEcdh = runtimeHost.prepareEcdh;

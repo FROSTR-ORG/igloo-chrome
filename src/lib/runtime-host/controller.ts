@@ -7,6 +7,7 @@ import {
   prepareEcdhOnNode,
   prepareSignOnNode,
   refreshAllPeersOnNode,
+  resolveApprovalOnNode,
   summarizeRuntimeLifecycle,
   updateRuntimeConfigOnNode,
   updateRuntimePeerPolicyOverrideOnNode,
@@ -370,6 +371,13 @@ export function createRuntimeHostController() {
     }, { persist: 'foreground' });
   }
 
+  async function resolveRuntimeApproval(requestId: string, approved: boolean) {
+    return await runSessionOperation(async (session) => {
+      await resolveApprovalOnNode(session.node, requestId, approved);
+      return getRuntimeStatus(session.node);
+    }, { persist: 'foreground' });
+  }
+
   async function refreshAllPeers() {
     await runSessionOperation(async (session) => {
       refreshAllPeersOnNode(session.node);
@@ -481,6 +489,7 @@ export function createRuntimeHostController() {
     prepareSign,
     readRuntimeConfig,
     refreshAllPeers,
+    resolveRuntimeApproval,
     setRuntimeHostStatusListener,
     stopRuntime,
     updateRuntimeConfig,

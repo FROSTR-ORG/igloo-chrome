@@ -19,6 +19,7 @@ import {
   logoutExtensionProfile,
   startOnboarding,
   startRuntime,
+  resolveRuntimeApproval,
   stopRuntime,
   unlockExtensionProfile,
   updateRuntimeConfig,
@@ -75,10 +76,11 @@ type AppState = {
     patch: {
       direction: 'request' | 'respond';
       method: 'ping' | 'onboard' | 'sign' | 'ecdh';
-      value: 'unset' | 'allow' | 'deny';
+      value: 'unset' | 'allow' | 'deny' | 'ask';
     }
   ) => Promise<StoredPeerPolicy[]>;
   clearPeerPolicyOverrides: () => Promise<StoredPeerPolicy[]>;
+  resolveApproval: (requestId: string, approved: boolean) => Promise<void>;
   revokeSitePermission: (policy: StoredPermissionPolicy) => Promise<void>;
   clearSitePermissions: () => Promise<void>;
   logout: () => Promise<void>;
@@ -290,12 +292,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     patch: {
       direction: 'request' | 'respond';
       method: 'ping' | 'onboard' | 'sign' | 'ecdh';
-      value: 'unset' | 'allow' | 'deny';
+      value: 'unset' | 'allow' | 'deny' | 'ask';
     }
   ) {
     const result = await updateRuntimePeerPolicy(pubkey, patch);
     await refreshAppStateQuietly();
     return result;
+  }
+
+  async function resolveApprovalAction(requestId: string, approved: boolean) {
+    await resolveRuntimeApproval(requestId, approved);
+    await refreshAppStateQuietly();
   }
 
   async function clearPeerPolicyOverridesAction() {
@@ -342,6 +349,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       prepareRuntime: prepareRuntimeAction,
       updatePeerPolicy: updatePeerPolicyAction,
       clearPeerPolicyOverrides: clearPeerPolicyOverridesAction,
+      resolveApproval: resolveApprovalAction,
       revokeSitePermission: revokeSitePermissionAction,
       clearSitePermissions: clearSitePermissionsAction,
       logout,
