@@ -38,6 +38,11 @@ export type RuntimeMethodPolicyOverride = {
   ecdh: PolicyOverrideValue;
 };
 
+// Deliberate divergence from igloo-shared's snake_case RuntimePeerPermissionState:
+// this is chrome's camelCase, storage-normalized internal form (manualOverride /
+// remoteObservation / effectivePolicy), not a wire shape. The wire-type drift
+// guard (./runtime-types.contract.ts) excludes peer_permission_states for this
+// reason.
 export type StoredPeerPolicy = {
   pubkey: string;
   manualOverride: {
