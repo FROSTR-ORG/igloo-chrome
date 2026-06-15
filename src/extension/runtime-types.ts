@@ -8,6 +8,8 @@ import type {
   RuntimeStatusDetails,
   RuntimePendingOperation,
   RuntimePendingApproval,
+  RuntimeOperationFailure,
+  RuntimeLoadError,
 } from 'igloo-shared';
 
 export type {
@@ -16,6 +18,8 @@ export type {
   RuntimeStatusDetails,
   RuntimePendingOperation,
   RuntimePendingApproval,
+  RuntimeOperationFailure,
+  RuntimeLoadError,
 } from 'igloo-shared';
 
 export type PolicyOverrideValue = 'unset' | 'allow' | 'deny' | 'ask';
@@ -70,6 +74,10 @@ export type RuntimeStatusSummary = {
   peer_permission_states: StoredPeerPolicy[];
   pending_operations: RuntimePendingOperation[];
   pending_approvals?: RuntimePendingApproval[];
+  last_sign_failure?: RuntimeOperationFailure | null;
+  connected_relays?: string[] | null;
+  configured_relays?: string[] | null;
+  last_load_error?: RuntimeLoadError | null;
 };
 
 export type RuntimeLifecycleStatus = {

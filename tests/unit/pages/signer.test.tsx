@@ -26,9 +26,18 @@ vi.mock('igloo-ui', () => ({
   buildPeerReadinessRows: () => [],
   buildPendingApprovalRows: () => [],
   // The redesigned panel takes a single `view` model; the saved-but-unavailable
-  // warning now surfaces through `view.relaySummary`.
+  // warning surfaces through `view.relaySummary` (a soft, not-a-full-panel state).
   OperatorSignerPanel: ({ view }: { view: { relaySummary: string } | null }) => (
     <div data-testid="runtime-error">{view?.relaySummary ?? ''}</div>
+  ),
+  // A stopped signer derives to ready/no-banners, so the panel renders.
+  deriveDashboardState: () => ({ kind: 'ready', banners: [] }),
+  DashboardLoadingScreen: () => <div data-testid="dashboard-loading" />,
+  DashboardLoadFailedScreen: ({ message }: { message: string }) => (
+    <div data-testid="dashboard-load-failed">{message}</div>
+  ),
+  DashboardConditionBanner: ({ banner }: { banner: { kind: string } }) => (
+    <div data-testid={`dashboard-banner-${banner.kind}`} />
   ),
 }));
 

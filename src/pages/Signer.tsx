@@ -4,6 +4,10 @@ import {
   buildPeerReadinessRows,
   buildPendingApprovalRows,
   ContentCard,
+  DashboardConditionBanner,
+  DashboardLoadFailedScreen,
+  DashboardLoadingScreen,
+  deriveDashboardState,
   OperatorSignerPanel,
   PageLayout,
   type EventLogRowModel,
@@ -58,6 +62,8 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
   const [copiedField, setCopiedField] = React.useState<'group' | 'share' | null>(null);
   const [eventRows, setEventRows] = React.useState<EventLogRowModel[]>([]);
   const [actionError, setActionError] = React.useState<string | null>(null);
+  // request_id of a signing-failed banner the operator dismissed.
+  const [dismissedSignFailureId, setDismissedSignFailureId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     void loadRuntimeDiagnostics()
@@ -196,7 +202,16 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
     })();
   };
 
-  const content = (
+  const dashboardState = deriveDashboardState({
+    active: isSignerRunning,
+    status: appState?.runtime.summary ?? null,
+    // "Profile saved, signer unavailable" is a soft, not-yet-started state shown
+    // within the panel (relaySummary), not a full-panel load failure. The
+    // load-failed screen is driven by a host-surfaced status.last_load_error.
+    dismissedSignFailureId,
+  });
+
+  const signerPanel = (
     <OperatorSignerPanel
       view={view}
       introMessage="The signer runtime is hosted by the extension background service worker. This page is an operator console over that runtime."
@@ -214,6 +229,39 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
       onAlwaysAllow={handleAlwaysAllow}
     />
   );
+
+  const content =
+    dashboardState.kind === 'loading' ? (
+      <DashboardLoadingScreen detail={dashboardState.detail} />
+    ) : dashboardState.kind === 'load-failed' ? (
+      <DashboardLoadFailedScreen
+        message={dashboardState.message}
+        timestampLabel={
+          dashboardState.at ? new Date(dashboardState.at * 1000).toLocaleString() : undefined
+        }
+        onRetry={() => void handleStart()}
+      />
+    ) : (
+      <div className="space-y-4">
+        {dashboardState.banners.map((banner) => (
+          <DashboardConditionBanner
+            key={banner.kind}
+            banner={banner}
+            timestampLabel={
+              banner.kind === 'signing-failed'
+                ? new Date(banner.at * 1000).toLocaleString()
+                : undefined
+            }
+            onDismiss={
+              banner.kind === 'signing-failed'
+                ? () => setDismissedSignFailureId(banner.requestId)
+                : undefined
+            }
+          />
+        ))}
+        {signerPanel}
+      </div>
+    );
 
   if (embedded) return content;
 
