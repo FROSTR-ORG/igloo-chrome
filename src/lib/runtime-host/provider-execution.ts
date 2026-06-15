@@ -23,9 +23,6 @@ export async function executeProviderMethodOnSession(input: {
       await prepareSignOnNode(session.node);
       return await signNostrEvent(session.node, params.event as Record<string, unknown>);
     }
-    case PROVIDER_METHOD.NIP04_ENCRYPT:
-    case PROVIDER_METHOD.NIP04_DECRYPT:
-      throw new Error('NIP-04 is not planned for the v2 runtime path');
     case PROVIDER_METHOD.NIP44_ENCRYPT: {
       if (typeof params?.pubkey !== 'string' || typeof params?.plaintext !== 'string') {
         throw new Error('nip44.encrypt requires pubkey and plaintext');

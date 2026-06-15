@@ -24,6 +24,9 @@ injectProviderScript();
 
 window.addEventListener('message', async (event) => {
   if (event.source !== window) return;
+  // Only accept requests from this exact page origin — a cross-origin frame
+  // must not be able to forge a provider_request.
+  if (event.origin !== window.location.origin) return;
   if (!isRecord(event.data)) return;
   if (event.data.source !== EXTENSION_SOURCE || event.data.direction !== 'provider_request') return;
 
@@ -54,6 +57,8 @@ window.addEventListener('message', async (event) => {
     response = { ok: false, error: serializeError(error) };
   }
 
+  // Origin-pinned: only the same-origin page provider receives the response,
+  // so a cross-origin frame can't sniff signed events / encryption results.
   window.postMessage(
     {
       source: EXTENSION_SOURCE,
@@ -61,6 +66,6 @@ window.addEventListener('message', async (event) => {
       id: event.data.id,
       ...response
     },
-    '*'
+    window.location.origin
   );
 });

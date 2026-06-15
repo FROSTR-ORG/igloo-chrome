@@ -21,6 +21,7 @@ describe('nostr provider bridge', () => {
     window.dispatchEvent(
       new MessageEvent('message', {
         source: window,
+        origin: window.location.origin,
         data: {
           source: EXTENSION_SOURCE,
           direction: 'provider_response',
@@ -44,6 +45,7 @@ describe('nostr provider bridge', () => {
     window.dispatchEvent(
       new MessageEvent('message', {
         source: window,
+        origin: window.location.origin,
         data: {
           source: EXTENSION_SOURCE,
           direction: 'provider_response',
@@ -67,6 +69,7 @@ describe('nostr provider bridge', () => {
     window.dispatchEvent(
       new MessageEvent('message', {
         source: window,
+        origin: window.location.origin,
         data: {
           source: EXTENSION_SOURCE,
           direction: 'provider_response',
@@ -78,5 +81,35 @@ describe('nostr provider bridge', () => {
     );
 
     await expect(pending).rejects.toThrow('Invalid relay response');
+  });
+
+  test('ignores a provider_response from a foreign origin (no cross-origin forgery)', async () => {
+    const postMessage = vi.spyOn(window, 'postMessage');
+    await import('@/nostr-provider');
+
+    const pending = window.nostr!.getPublicKey();
+    const payload = postMessage.mock.calls.at(-1)?.[0] as { id: string };
+
+    // A cross-origin frame forges a (correctly-shaped) response — must be dropped
+    // by the origin check, leaving the request unresolved.
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: window,
+        origin: 'https://evil.example',
+        data: {
+          source: EXTENSION_SOURCE,
+          direction: 'provider_response',
+          id: payload.id,
+          ok: true,
+          result: 'forged-pubkey'
+        }
+      })
+    );
+
+    const settled = await Promise.race([
+      pending.then(() => 'resolved'),
+      new Promise((resolve) => setTimeout(() => resolve('pending'), 20))
+    ]);
+    expect(settled).toBe('pending');
   });
 });

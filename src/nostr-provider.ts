@@ -11,10 +11,6 @@ declare global {
       getPublicKey: () => Promise<string>;
       getRelays: () => Promise<Record<string, { read: boolean; write: boolean }>>;
       signEvent: (event: Record<string, unknown>) => Promise<unknown>;
-      nip04: {
-        encrypt: (pubkey: string, plaintext: string) => Promise<string>;
-        decrypt: (pubkey: string, ciphertext: string) => Promise<string>;
-      };
       nip44: {
         encrypt: (pubkey: string, plaintext: string) => Promise<string>;
         decrypt: (pubkey: string, ciphertext: string) => Promise<string>;
@@ -33,6 +29,8 @@ function request(type: string, params: Record<string, unknown>) {
 function awaitable(id: string, type: string, params: Record<string, unknown>) {
   return new Promise<unknown>((resolve, reject) => {
     pending.set(id, { resolve, reject });
+    // Origin-pinned so a cross-origin frame can neither read the request nor
+    // (with the receive-side origin check below) forge the response.
     window.postMessage(
       {
         source: EXTENSION_SOURCE,
@@ -41,13 +39,14 @@ function awaitable(id: string, type: string, params: Record<string, unknown>) {
         type,
         params
       },
-      '*'
+      window.location.origin
     );
   });
 }
 
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
+  if (event.origin !== window.location.origin) return;
   const data = event.data as
     | {
         source?: string;
@@ -90,22 +89,6 @@ window.nostr = {
   },
   async signEvent(event: Record<string, unknown>) {
     return await request(PROVIDER_METHOD.SIGN_EVENT, { event });
-  },
-  nip04: {
-    async encrypt(pubkey: string, plaintext: string) {
-      const result = await request(PROVIDER_METHOD.NIP04_ENCRYPT, { pubkey, plaintext });
-      if (typeof result !== 'string') {
-        throw new Error('Invalid encryption response');
-      }
-      return result;
-    },
-    async decrypt(pubkey: string, ciphertext: string) {
-      const result = await request(PROVIDER_METHOD.NIP04_DECRYPT, { pubkey, ciphertext });
-      if (typeof result !== 'string') {
-        throw new Error('Invalid decryption response');
-      }
-      return result;
-    }
   },
   nip44: {
     async encrypt(pubkey: string, plaintext: string) {
