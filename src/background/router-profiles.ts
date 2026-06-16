@@ -10,6 +10,7 @@ import {
   encodeBfProfilePackage,
   encodeBfSharePackage,
   saveImportedBrowserProfileAndMaybeActivate,
+  Secret,
 } from '@/lib/igloo';
 import { decryptLocalProfileBlobWithPassword, type LocalProfileBlobPayload } from '@/lib/profile-blob';
 import { normalizeSignerSettings } from '@/lib/signer-settings';
@@ -144,13 +145,13 @@ export function createProfilesRouter(
         const payload = active.payload.profile;
         const packageText =
           format === 'bfprofile'
-            ? await encodeBfProfilePackage(payload, password)
+            ? await encodeBfProfilePackage(payload, Secret.of(password))
             : await encodeBfSharePackage(
                 {
                   shareSecret: payload.device.shareSecret,
                   relays: payload.device.relays,
                 },
-                password,
+                Secret.of(password),
               );
         return { packageText };
       });
