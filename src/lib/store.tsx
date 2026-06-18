@@ -36,6 +36,7 @@ import {
   type StoredExtensionProfile
 } from '@/extension/protocol';
 import { DEFAULT_RELAYS, normalizeRelays } from '@/lib/igloo';
+import { resolveDevScenario } from '@/lib/dev-scenario';
 
 export type AppRoute = 'onboarding' | 'signer';
 
@@ -101,6 +102,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     null
   );
   const stateVersionRef = React.useRef(0);
+  // Dev/test only: `?__frostr_dev=<scenario>` renders a fixed in-memory snapshot
+  // (incl. a running runtime) instead of fetching from the background. Inert
+  // without the query param. See lib/dev-scenario.ts.
+  const devScenario = useMemo(() => resolveDevScenario(), []);
 
   const applyAppState = React.useCallback((next: ExtensionStateSnapshot) => {
     stateVersionRef.current += 1;
@@ -126,6 +131,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     let cancelled = false;
     const bootstrapVersion = stateVersionRef.current;
+    if (devScenario) {
+      // Render the in-memory scenario; never touch the background.
+      applyAppState(devScenario);
+      return () => {
+        cancelled = true;
+      };
+    }
     const chromeApi = getChromeApi();
     const listener = (message: unknown) => {
       if (
@@ -161,7 +173,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       chromeApi?.runtime?.onMessage?.removeListener?.(listener);
     };
-  }, [applyAppState]);
+  }, [applyAppState, devScenario]);
 
   const route: AppRoute = appState?.configured ? 'signer' : 'onboarding';
   const profile = appState?.profile ?? undefined;
@@ -280,6 +292,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function loadRuntimeDiagnosticsAction() {
+    if (devScenario) {
+      // Scenario mode has no background; return an empty diagnostics snapshot so
+      // the signer panel renders without a (failing) background round-trip.
+      return {
+        runtime: devScenario.runtime.phase,
+        diagnostics: [],
+        dropped: 0,
+        lifecycle: devScenario.lifecycle,
+        lifecycleHistory: [],
+      } satisfies RuntimeDiagnosticsSnapshot;
+    }
     return await fetchRuntimeDiagnostics();
   }
 

@@ -179,6 +179,10 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
     thresholdLabel: peers.length ? `${peers.length} peers` : 'no peers',
     publicKeyLabel: groupPublicKey,
     shareLabel: sharePublicKey,
+    // Drives the panel's running vs stopped layout (live peers/pending sections
+    // vs the static Readiness/Next-Step cards). Without it a running signer would
+    // render the stopped cards. Mirrors igloo-pwa's `running` view field.
+    running: isSignerRunning,
     readinessLabel: runtimeSummaryLabel,
     relaySummary: displayRuntimeError ?? (isSignerRunning ? 'Runtime connected' : 'Runtime stopped'),
     peerRows: peers,
