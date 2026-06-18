@@ -147,7 +147,10 @@ async function bundleBrowserEntry(entryPoint, outfile, format = 'esm') {
         process.env.VITE_BIFROST_EVENT_KIND ?? '20000'
       ),
       'import.meta.env.VITE_IGLOO_VERBOSE': JSON.stringify(process.env.VITE_IGLOO_VERBOSE ?? '0'),
-      'import.meta.env.VITE_IGLOO_DEBUG': JSON.stringify(process.env.VITE_IGLOO_DEBUG ?? '0')
+      'import.meta.env.VITE_IGLOO_DEBUG': JSON.stringify(process.env.VITE_IGLOO_DEBUG ?? '0'),
+      // Dev/test-only render seam (lib/dev-scenario.ts). Off by default so the
+      // shipped extension never carries it; the test prebuild sets it to '1'.
+      'import.meta.env.VITE_IGLOO_VISUAL': JSON.stringify(process.env.VITE_IGLOO_VISUAL ?? '0')
     }
   });
 }

@@ -186,6 +186,10 @@ function runningSnapshot(): ExtensionStateSnapshot {
  * Returns null in production (no param) or for an unknown scenario name.
  */
 export function resolveDevScenario(): ExtensionStateSnapshot | null {
+  // Dev/test builds only. The chrome build has no `import.meta.env.DEV`, so the
+  // seam is gated on a dedicated define: off ('0') by default so the shipped
+  // extension tree-shakes it out; the test prebuild builds with it set to '1'.
+  if (import.meta.env.VITE_IGLOO_VISUAL !== '1') return null;
   if (typeof window === 'undefined') return null;
   let name: string | null = null;
   try {

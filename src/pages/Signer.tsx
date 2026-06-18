@@ -17,6 +17,7 @@ import {
 } from 'igloo-ui';
 import { type RuntimeStatusSummary, type StoredPeerPolicy } from '@/extension/protocol';
 import { useStore } from '@/lib/store';
+import { toDashboardKey } from '@/lib/dashboard-view';
 import { deriveRuntimePresentation } from '@/lib/runtime-activation';
 import { createLogger, type ObservabilityEvent } from '@/lib/observability';
 import {
@@ -107,12 +108,15 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
     }
   };
 
-  const handleCopy = async (field: 'group' | 'share') => {
-    const value =
+  const handleCopy = async (field: 'group' | 'share', format?: 'npub' | 'hex') => {
+    const hex =
       field === 'group'
         ? appState?.runtime.metadata?.group_public_key ?? profile?.groupPublicKey
         : appState?.runtime.metadata?.share_public_key ?? profile?.sharePublicKey;
-    if (!value) return;
+    if (!hex) return;
+    // npub by default (the KeyRow's default copy); hex via the format caret.
+    const model = toDashboardKey(hex);
+    const value = format === 'hex' ? model?.hex ?? hex : model?.npub ?? hex;
     try {
       await navigator.clipboard.writeText(value);
       setCopiedField(field);
@@ -179,6 +183,10 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
     thresholdLabel: peers.length ? `${peers.length} peers` : 'no peers',
     publicKeyLabel: groupPublicKey,
     shareLabel: sharePublicKey,
+    // Structured keys enable the npub/hex split-copy KeyRow (parity with
+    // igloo-pwa); the panel falls back to the plain KeyField if undefined.
+    groupKey: toDashboardKey(groupPublicKey),
+    shareKey: toDashboardKey(sharePublicKey),
     // Drives the panel's running vs stopped layout (live peers/pending sections
     // vs the static Readiness/Next-Step cards). Without it a running signer would
     // render the stopped cards. Mirrors igloo-pwa's `running` view field.
@@ -221,8 +229,8 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
       introMessage="The signer runtime is hosted by the extension background service worker. This page is an operator console over that runtime."
       runtimeControlLabel={runtimeControlLabel}
       copiedField={copiedField}
-      onCopyGroupKey={() => void handleCopy('group')}
-      onCopyShareKey={() => void handleCopy('share')}
+      onCopyGroupKey={(format) => void handleCopy('group', format)}
+      onCopyShareKey={(format) => void handleCopy('share', format)}
       onPrimaryAction={isSignerRunning ? () => void handleStop() : () => void handleStart()}
       primaryActionVariant={isSignerRunning ? 'destructive' : 'success'}
       primaryActionDisabled={isConnecting}

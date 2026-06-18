@@ -3,6 +3,7 @@ interface ImportMetaEnv {
   readonly VITE_BIFROST_EVENT_KIND?: string;
   readonly VITE_IGLOO_VERBOSE?: string;
   readonly VITE_IGLOO_DEBUG?: string;
+  readonly VITE_IGLOO_VISUAL?: string;
 }
 
 interface ImportMeta {
