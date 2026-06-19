@@ -132,8 +132,20 @@ async function copyFonts() {
   // The CSS at dist/index.css references "./fonts/*.woff2" (see iglooFontsDir
   // comment). Mirror the igloo-ui vendored fonts into dist/fonts/ so the rebased
   // url() refs resolve at runtime — this postcss pass, unlike Vite, does not
-  // emit/rebase the woff2 itself.
-  await fs.cp(iglooFontsDir, distFontsDir, { recursive: true });
+  // emit/rebase the woff2 itself. Copy only *.woff2 files; skip license/readme
+  // cruft that lives alongside them in the source fonts directory.
+  await fs.mkdir(distFontsDir, { recursive: true });
+  const entries = await fs.readdir(iglooFontsDir);
+  await Promise.all(
+    entries
+      .filter(name => name.endsWith('.woff2'))
+      .map(name =>
+        fs.copyFile(
+          path.join(iglooFontsDir, name),
+          path.join(distFontsDir, name)
+        )
+      )
+  );
 }
 
 async function bundleBrowserEntry(entryPoint, outfile, format = 'esm') {

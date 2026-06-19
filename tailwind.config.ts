@@ -3,7 +3,6 @@ import iglooPreset from 'igloo-ui/tailwind.preset';
 
 const config: Config = {
   presets: [iglooPreset as Config],
-  darkMode: ['class'],
   content: ['./src/**/*.{ts,tsx}', '../igloo-ui/src/**/*.{ts,tsx}'],
 };
 

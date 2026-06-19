@@ -57,7 +57,6 @@ Observability controls:
 
 Low-level maintenance/debug surfaces still exist:
 - `npm run build:browser-wasm`
-- `npm run build:ui`
 
 The infra-owned Playwright fixtures default to `VITE_IGLOO_VERBOSE=1` for live/runtime coverage.
 
