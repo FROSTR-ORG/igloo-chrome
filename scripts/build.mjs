@@ -6,7 +6,9 @@ import { promises as fs } from 'node:fs';
 
 import esbuild from 'esbuild';
 import postcss from 'postcss';
+import postcssImport from 'postcss-import';
 import tailwindcss from 'tailwindcss';
+import autoprefixer from 'autoprefixer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +19,13 @@ const defaultScratchWasmDir = path.resolve(rootDir, '../../.tmp/test-prebuild/br
 const trackedWasmDir = path.join(publicDir, 'wasm');
 const sourceCss = path.join(rootDir, 'src/index.css');
 const distCss = path.join(distDir, 'index.css');
+// igloo-ui's source styles.css references its vendored fonts with relative
+// url("./fonts/*.woff2"). postcss-import inlines the @font-face rules but does
+// NOT rebase the url() (unlike Vite's asset pipeline used by pwa/home). The CSS
+// lands at dist/index.css, so "./fonts/" resolves to dist/fonts/ — copy the
+// igloo-ui vendored woff2 there so the refs resolve and Inter renders.
+const iglooFontsDir = path.resolve(rootDir, '../igloo-ui/src/fonts');
+const distFontsDir = path.join(distDir, 'fonts');
 
 // esbuild has no `dedupe` (a Vite/rollup concept). igloo-shared is bundled from
 // source under preserveSymlinks, so it resolves its own nested nostr-tools while
@@ -102,16 +111,29 @@ async function copyWasmAssets() {
 }
 
 async function buildCss() {
+  // postcss-import runs FIRST so it resolves chrome's
+  // `@import "../../igloo-ui/src/styles.css"` AND igloo-ui's nested
+  // `@import "./tokens/design-tokens.css"` (relative to igloo-ui's own file),
+  // inlining the design tokens before tailwind processes the file. Without it,
+  // the `--igloo-*` tokens would vanish and colors/fonts would break.
   const input = await fs.readFile(sourceCss, 'utf8');
-  const bundledInput = input.replace(
-    /@import\s+["']igloo-ui\/styles\.css["'];?/g,
-    await fs.readFile(path.join(rootDir, 'node_modules/igloo-ui/dist/styles.css'), 'utf8')
-  );
-  const result = await postcss([tailwindcss({ config: path.join(rootDir, 'tailwind.config.ts') })]).process(bundledInput, {
+  const result = await postcss([
+    postcssImport(),
+    tailwindcss({ config: path.join(rootDir, 'tailwind.config.ts') }),
+    autoprefixer()
+  ]).process(input, {
     from: sourceCss,
     to: distCss
   });
   await fs.writeFile(distCss, result.css, 'utf8');
+}
+
+async function copyFonts() {
+  // The CSS at dist/index.css references "./fonts/*.woff2" (see iglooFontsDir
+  // comment). Mirror the igloo-ui vendored fonts into dist/fonts/ so the rebased
+  // url() refs resolve at runtime — this postcss pass, unlike Vite, does not
+  // emit/rebase the woff2 itself.
+  await fs.cp(iglooFontsDir, distFontsDir, { recursive: true });
 }
 
 async function bundleBrowserEntry(entryPoint, outfile, format = 'esm') {
@@ -181,6 +203,7 @@ async function buildAll() {
   await copyPublic();
   await copyWasmAssets();
   await buildCss();
+  await copyFonts();
 
   await bundleBrowserEntry('src/main.tsx', path.join(distDir, 'options.js'));
   await bundleBrowserEntry('src/popup.tsx', path.join(distDir, 'popup.js'));
