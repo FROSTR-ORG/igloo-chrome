@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Alert } from 'igloo-ui';
 import type {
   RuntimePendingOperation,
   RuntimeSnapshotDetails
@@ -110,9 +111,7 @@ export function RuntimeStateSections({
   return (
     <div className="space-y-6">
       {snapshotError && (
-        <div className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
-          Snapshot error: {snapshotError}
-        </div>
+        <Alert title="Snapshot error" tone="warning">{snapshotError}</Alert>
       )}
 
       {!snapshotState ? (

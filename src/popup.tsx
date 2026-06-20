@@ -1,6 +1,6 @@
 import * as React from 'react';
 import ReactDOM from 'react-dom/client';
-import { AppHeader, Button, Card, CardContent, CardHeader, CardTitle } from 'igloo-ui';
+import { Alert, AppHeader, Button, Card, CardContent, CardHeader, CardTitle } from 'igloo-ui';
 import { fetchExtensionState, openDashboard as openExtensionDashboard } from '@/extension/client';
 import type { ExtensionStateSnapshot } from '@/extension/protocol';
 
@@ -36,9 +36,7 @@ function PopupApp() {
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           {error && (
-            <div className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-300">
-              {error}
-            </div>
+            <Alert tone="danger">{error}</Alert>
           )}
 
           {!error && status && (
@@ -60,9 +58,7 @@ function PopupApp() {
                 </span>
               </div>
               {status.lifecycle.activation.lastError && (
-                <div className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-200">
-                  {status.lifecycle.activation.lastError.message}
-                </div>
+                <Alert tone="warning">{status.lifecycle.activation.lastError.message}</Alert>
               )}
               <div className="space-y-1">
                 <div className="text-slate-400">Public key</div>

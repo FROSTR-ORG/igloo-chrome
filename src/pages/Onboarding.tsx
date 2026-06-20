@@ -1,6 +1,7 @@
 import * as React from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import {
+  Alert,
   AppHeader,
   Button,
   ContentCard,
@@ -268,9 +269,7 @@ export default function OnboardingPage() {
               </div>
 
               {error && (
-                <div className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
-                  {error}
-                </div>
+                <Alert tone="danger">{error}</Alert>
               )}
 
               <div className="flex justify-end pt-2">
@@ -453,16 +452,11 @@ export default function OnboardingPage() {
           </div>
 
           {error && (
-            <div className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
-              {error}
-            </div>
+            <Alert tone="danger">{error}</Alert>
           )}
 
           {lastOnboardingFailure && (
-            <div className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200 space-y-1">
-              <div>Last onboarding failure</div>
-              <div>{lastOnboardingFailure.message}</div>
-            </div>
+            <Alert title="Last onboarding failure" tone="warning">{lastOnboardingFailure.message}</Alert>
           )}
         </div>
       )}
