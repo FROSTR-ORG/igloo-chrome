@@ -13,92 +13,37 @@
 import type {
   ExtensionStateSnapshot,
   LifecycleStatusSnapshot,
-  RuntimeMetadata,
-  RuntimePeerStatus,
-  RuntimeReadiness,
   RuntimeStatusSummary,
   StoredExtensionProfile,
 } from '@/extension/protocol';
+import {
+  FIXTURE_PROFILE_ID, FIXTURE_PROFILE_LABEL, FIXTURE_GROUP_PK, FIXTURE_SHARE_PK,
+  FIXTURE_RELAY, FIXTURE_PEER_A, FIXTURE_SIGNER_SETTINGS,
+  createFixtureRuntimeStatusSummary,
+} from 'igloo-shared/testing/dev-fixtures';
 
 const DEV_SCENARIO_PARAM = '__frostr_dev';
 
-const GROUP_PK = '02'.repeat(32);
-const SHARE_PK = '11'.repeat(32);
-const PEER_A = '03a3f8c2d1'.padEnd(64, '0');
-const PEER_B = '02d7e1b93b'.padEnd(64, '0');
-
 const fixtureProfile: StoredExtensionProfile = {
-  id: 'dev-scenario-device',
-  groupName: 'Dev Signing Key',
-  relays: ['ws://127.0.0.1:8194'],
-  groupPublicKey: GROUP_PK,
-  sharePublicKey: SHARE_PK,
-  publicKey: SHARE_PK,
-  peerPubkey: PEER_A,
-  signerSettings: {
-    sign_timeout_secs: 30,
-    ping_timeout_secs: 15,
-    request_ttl_secs: 300,
-    state_save_interval_secs: 30,
-    peer_selection_strategy: 'deterministic_sorted',
-  },
-};
-
-function fixturePeer(idx: number, pubkey: string, online: boolean): RuntimePeerStatus {
-  return {
-    idx,
-    pubkey,
-    known: true,
-    last_seen: online ? 1_700_000_000 : null,
-    online,
-    incoming_available: online ? 92 : 0,
-    outgoing_available: online ? 78 : 0,
-    outgoing_spent: online ? 14 : 0,
-    can_sign: online,
-    can_ecdh: online,
-    can_ping: online,
-    should_send_nonces: online,
-    last_response_latency_ms: online ? 24 : null,
-    avg_latency_ms: online ? 31 : null,
-    nonce_history: [],
-  } as unknown as RuntimePeerStatus;
-}
-
-const readiness: RuntimeReadiness = {
-  runtime_ready: true,
-  restore_complete: true,
-  sign_ready: true,
-  ecdh_ready: true,
-  threshold: 2,
-} as unknown as RuntimeReadiness;
-
-const metadata: RuntimeMetadata = {
-  device_id: fixtureProfile.id,
-  member_idx: 1,
-  share_public_key: SHARE_PK,
-  group_public_key: GROUP_PK,
-  peers: [PEER_A, PEER_B],
+  id: FIXTURE_PROFILE_ID,
+  groupName: FIXTURE_PROFILE_LABEL,
+  relays: [FIXTURE_RELAY],
+  groupPublicKey: FIXTURE_GROUP_PK,
+  sharePublicKey: FIXTURE_SHARE_PK,
+  publicKey: FIXTURE_SHARE_PK,
+  peerPubkey: FIXTURE_PEER_A,
+  signerSettings: { ...FIXTURE_SIGNER_SETTINGS },
 };
 
 // A representative running runtime: signer online with two peers (one online,
 // one offline) so the dashboard renders the Peers card with content.
+// peer_permission_states is empty in the shared fixture; cast to chrome's local
+// StoredPeerPolicy[] (structurally compatible — both are empty in this seam).
+const _sharedSummary = createFixtureRuntimeStatusSummary();
 const runningSummary: RuntimeStatusSummary = {
-  status: {
-    device_id: fixtureProfile.id,
-    pending_ops: 0,
-    last_active: 1_700_000_000,
-    known_peers: 2,
-    request_seq: 7,
-  },
-  metadata,
-  readiness,
-  peers: [fixturePeer(0, PEER_A, true), fixturePeer(2, PEER_B, false)],
+  ..._sharedSummary,
   peer_permission_states: [],
-  pending_operations: [],
-  pending_approvals: [],
-  connected_relays: ['ws://127.0.0.1:8194'],
-  configured_relays: ['ws://127.0.0.1:8194'],
-} as unknown as RuntimeStatusSummary;
+};
 
 const idleLifecycle: LifecycleStatusSnapshot = {
   onboarding: { stage: 'idle', updatedAt: null, lastError: null },
@@ -172,9 +117,10 @@ function runningSnapshot(): ExtensionStateSnapshot {
       desiredActive: true,
       phase: 'ready',
       summary: runningSummary,
-      metadata,
-      readiness,
+      metadata: runningSummary.metadata,
+      readiness: runningSummary.readiness,
       peerStatus: runningSummary.peers,
+      pendingOperations: runningSummary.pending_operations,
       lifecycle: { bootMode: 'restored', reason: null, updatedAt: 1_700_000_000_000 },
     },
   };
