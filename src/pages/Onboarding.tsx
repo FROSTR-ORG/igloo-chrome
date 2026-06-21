@@ -11,8 +11,11 @@ import {
   PageLayout,
   PasswordField,
   ProfileConfirmationCard,
-  StoredProfilesLandingCard,
-  Textarea
+  Textarea,
+  WelcomeEntryHero,
+  WelcomeReturningHero,
+  WelcomeUnlockModal,
+  type WelcomeReturningProfileModel,
 } from 'igloo-ui';
 import { useStore } from '@/lib/store';
 import { shortProfileId, validateOnboardCredential, validateOnboardingPassword } from '@/lib/igloo';
@@ -32,6 +35,23 @@ function packageLooksLike(value: string, prefix: 'bfprofile1' | 'bfshare1') {
   return { isValid: true, error: null };
 }
 
+function deriveChromeReturningProfile(profile: {
+  id: string;
+  label: string;
+  unlocked: boolean;
+}): WelcomeReturningProfileModel {
+  return {
+    id: profile.id,
+    label: profile.label || 'Unnamed device',
+    thresholdLabel: '',
+    memberLabel: '',
+    publicKeyLabel: shortProfileId(profile.id),
+    canRotate: false,
+    canRecover: false,
+    canDelete: true,
+  };
+}
+
 export default function OnboardingPage() {
   const {
     appState,
@@ -48,6 +68,9 @@ export default function OnboardingPage() {
   const [pendingConnect, setPendingConnect] = React.useState<PendingConnect | null>(null);
   const profiles = appState?.profiles ?? [];
 
+  const [showOnboard, setShowOnboard] = React.useState(false);
+  const [showImport, setShowImport] = React.useState(false);
+
   const [onboardPackage, setOnboardPackage] = React.useState('');
   const [onboardPassword, setOnboardPassword] = React.useState('');
   const [signerName, setSignerName] = React.useState('');
@@ -55,9 +78,10 @@ export default function OnboardingPage() {
 
   const [bfprofilePackage, setBfprofilePackage] = React.useState('');
   const [bfprofilePassword, setBfprofilePassword] = React.useState('');
-  const [selectedProfileId, setSelectedProfileId] = React.useState('');
   const [unlockProfileId, setUnlockProfileId] = React.useState<string | null>(null);
   const [unlockPassword, setUnlockPassword] = React.useState('');
+  const [unlockError, setUnlockError] = React.useState<string | null>(null);
+  const [unlockSubmitting, setUnlockSubmitting] = React.useState(false);
 
   const [connecting, setConnecting] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -85,6 +109,7 @@ export default function OnboardingPage() {
     const password = params.get('password');
     if (onboard) {
       setOnboardPackage(onboard.trim());
+      setShowOnboard(true);
     }
     if (password) {
       setOnboardPassword(password);
@@ -92,9 +117,6 @@ export default function OnboardingPage() {
   }, []);
 
   React.useEffect(() => {
-    setSelectedProfileId((current) =>
-      current && profiles.some((profile) => profile.id === current) ? current : (profiles[0]?.id ?? '')
-    );
     setUnlockProfileId((current) =>
       current && profiles.some((profile) => profile.id === current) ? current : null
     );
@@ -169,20 +191,6 @@ export default function OnboardingPage() {
     }
   }
 
-  async function onUnlockExisting(profileId: string) {
-    setActivatingProfileId(profileId);
-    setError(null);
-    try {
-      await unlockProfile(profileId, unlockPassword);
-      setUnlockProfileId(null);
-      setUnlockPassword('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setActivatingProfileId(null);
-    }
-  }
-
   async function onLoadStoredProfile(profileId: string) {
     const profile = profiles.find((entry) => entry.id === profileId);
     if (!profile) {
@@ -195,10 +203,10 @@ export default function OnboardingPage() {
       await onActivateExisting(profileId);
       return;
     }
-    setSelectedProfileId(profileId);
     setUnlockProfileId(profileId);
     setUnlockPassword('');
-    setError(null);
+    setUnlockError(null);
+    setUnlockSubmitting(false);
   }
 
   async function onDeleteStoredProfile(profileId: string) {
@@ -216,6 +224,7 @@ export default function OnboardingPage() {
       if (unlockProfileId === profileId) {
         setUnlockProfileId(null);
         setUnlockPassword('');
+        setUnlockError(null);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -224,12 +233,92 @@ export default function OnboardingPage() {
     }
   }
 
-  const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
-  const selectedLockedProfile =
-    unlockProfileId ? profiles.find((profile) => profile.id === unlockProfileId) ?? null : null;
+  const unlockProfile_ = profiles.find((p) => p.id === unlockProfileId) ?? null;
+  const unlockProfileModel: WelcomeReturningProfileModel | null = unlockProfile_
+    ? deriveChromeReturningProfile(unlockProfile_)
+    : null;
+
+  async function submitUnlock(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!unlockProfileId) return;
+    setUnlockSubmitting(true);
+    setUnlockError(null);
+    try {
+      await unlockProfile(unlockProfileId, unlockPassword);
+      setUnlockProfileId(null);
+      setUnlockPassword('');
+      setUnlockError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setUnlockError(
+        /incorrect passphrase|invalid.*password|wrong.*password/i.test(message)
+          ? 'Invalid profile password.'
+          : message || 'Could not unlock this device.',
+      );
+    } finally {
+      setUnlockSubmitting(false);
+    }
+  }
+
+  function closeUnlock() {
+    setUnlockProfileId(null);
+    setUnlockPassword('');
+    setUnlockError(null);
+    setUnlockSubmitting(false);
+  }
+
+  function renderLanding() {
+    if (profiles.length === 0) {
+      return (
+        <WelcomeEntryHero
+          productLabel="Igloo"
+          tagline="Threshold signing for your browser."
+          primaryAction={{
+            heading: 'Onboard New Device',
+            description: 'Use a password-protected bfonboard package to set up this browser as a signing device.',
+            buttonLabel: 'Onboard Device',
+            onAction: () => setShowOnboard(true),
+            showInfo: false,
+          }}
+          secondaryActions={[
+            { id: 'import', label: 'Import Existing Device', onAction: () => setShowImport(true) },
+          ]}
+        />
+      );
+    }
+
+    return (
+      <WelcomeReturningHero
+        productLabel="Igloo"
+        layout={profiles.length === 1 ? 'single' : profiles.length <= 3 ? 'multi' : 'many'}
+        profiles={profiles.map(deriveChromeReturningProfile)}
+        onUnlock={(profileId) => void onLoadStoredProfile(profileId)}
+        onRotate={() => {}}
+        onDelete={(profileId) => void onDeleteStoredProfile(profileId)}
+        secondaryActions={[
+          { id: 'onboard', label: 'Onboard New Device', onAction: () => setShowOnboard(true) },
+          { id: 'import', label: 'Import Existing Device', onAction: () => setShowImport(true) },
+        ]}
+      />
+    );
+  }
 
   return (
     <PageLayout header={<AppHeader mode="task" taskLabel="browser signing device" />}>
+      <WelcomeUnlockModal
+        open={Boolean(unlockProfileId)}
+        profile={unlockProfileModel}
+        password={unlockPassword}
+        error={unlockError}
+        submitting={unlockSubmitting}
+        onPasswordChange={(value) => {
+          setUnlockPassword(value);
+          setUnlockError(null);
+        }}
+        onSubmit={(e) => void submitUnlock(e)}
+        onClose={closeUnlock}
+      />
+
       {pendingConnect ? (
         <ContentCard
           title="Save Onboarded Device"
@@ -282,133 +371,9 @@ export default function OnboardingPage() {
         </ContentCard>
       ) : (
         <div className="space-y-6">
-          <ContentCard
-            title="Choose Device"
-            description="Select a stored profile to load or delete it, or import new device material into this extension."
-          >
-            <StoredProfilesLandingCard
-              profiles={profiles.map((profile) => {
-                const isActive = Boolean(appState?.configured && appState.activeProfileId === profile.id);
-                return {
-                  id: profile.id,
-                  label: profile.label || 'Unnamed device',
-                  shortId: shortProfileId(profile.id),
-                  state: isActive ? 'active' : profile.unlocked ? 'available' : 'locked',
-                  primaryActionLabel:
-                    activatingProfileId === profile.id
-                      ? profile.unlocked
-                        ? 'Loading…'
-                        : 'Unlocking…'
-                      : isActive
-                        ? 'Open Dashboard'
-                        : 'Load Profile',
-                  destructiveActionLabel:
-                    deletingProfileId === profile.id ? 'Deleting…' : 'Delete Profile',
-                };
-              })}
-              selectedProfileId={selectedProfileId}
-              description="Stored profiles stay encrypted locally. Select one first, then load it for this browser session or remove it from this extension."
-              onSelect={(profileId) => {
-                setSelectedProfileId(profileId);
-                if (unlockProfileId && unlockProfileId !== profileId) {
-                  setUnlockProfileId(null);
-                  setUnlockPassword('');
-                }
-                setError(null);
-              }}
-              onLoad={(profileId) => void onLoadStoredProfile(profileId)}
-              onDelete={(profileId) => void onDeleteStoredProfile(profileId)}
-              loadDisabled={Boolean(activatingProfileId) || Boolean(deletingProfileId)}
-              deleteDisabled={Boolean(activatingProfileId) || Boolean(deletingProfileId)}
-              renderProfileDetail={(profile, isSelected) =>
-                selectedLockedProfile &&
-                selectedLockedProfile.id === profile.id &&
-                isSelected ? (
-                  <div className="mt-4 space-y-3">
-                    <div className="space-y-1">
-                      <div className="text-sm font-medium text-cyan-100">Unlock Stored Profile</div>
-                      <div className="text-xs text-cyan-400">
-                        Enter the local profile password to unlock this device for the current browser session.
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-sm text-blue-300">Profile Password</Label>
-                      <PasswordField
-                        placeholder="Enter profile password"
-                        value={unlockPassword}
-                        onChange={(e: ChangeEvent<HTMLInputElement>) => setUnlockPassword(e.target.value)}
-                        disabled={activatingProfileId === selectedLockedProfile.id}
-                      />
-                    </div>
-                    <div className="flex items-center justify-end gap-2">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => {
-                          setUnlockProfileId(null);
-                          setUnlockPassword('');
-                        }}
-                        disabled={activatingProfileId === selectedLockedProfile.id}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="button"
-                        data-testid={CRITICAL_E2E_TEST_IDS.storedProfileUnlockSubmit}
-                        disabled={
-                          activatingProfileId === selectedLockedProfile.id ||
-                          unlockPassword.trim().length < 8
-                        }
-                        onClick={() => void onUnlockExisting(selectedLockedProfile.id)}
-                      >
-                        {activatingProfileId === selectedLockedProfile.id ? 'Unlocking…' : 'Unlock Profile'}
-                      </Button>
-                    </div>
-                  </div>
-                ) : null
-              }
-            />
-          </ContentCard>
+          {renderLanding()}
 
-          <div className="grid gap-6 xl:grid-cols-3">
-            <ContentCard
-              title="Load bfprofile"
-              description="Import a full encrypted device profile package and load it into the extension."
-            >
-              <form onSubmit={onImportBfprofile} className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label className="text-sm text-blue-300">bfprofile</Label>
-                  <Textarea
-                    placeholder="bfprofile1..."
-                    value={bfprofilePackage}
-                    onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setBfprofilePackage(e.target.value)}
-                    rows={3}
-                    className="text-sm font-mono"
-                    disabled={importingProfile}
-                    required
-                  />
-                  {!bfprofileValidation.isValid && bfprofilePackage && (
-                    <p className="text-xs text-red-400">{bfprofileValidation.error}</p>
-                  )}
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm text-blue-300">Package Password</Label>
-                  <PasswordField
-                    placeholder="Minimum 8 characters"
-                    value={bfprofilePassword}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => setBfprofilePassword(e.target.value)}
-                    disabled={importingProfile}
-                    required
-                  />
-                </div>
-                <div className="flex justify-end pt-2">
-                  <Button type="submit" disabled={!canImportProfile || importingProfile}>
-                    {importingProfile ? 'Importing…' : 'Import Profile'}
-                  </Button>
-                </div>
-              </form>
-            </ContentCard>
-
+          {(showOnboard || profiles.length === 0) && (
             <ContentCard
               title="Onboard Device"
               description="Connect with a password-protected onboarding package and complete the handshake."
@@ -449,7 +414,47 @@ export default function OnboardingPage() {
                 </div>
               </form>
             </ContentCard>
-          </div>
+          )}
+
+          {(showImport || profiles.length === 0) && (
+            <ContentCard
+              title="Load bfprofile"
+              description="Import a full encrypted device profile package and load it into the extension."
+            >
+              <form onSubmit={onImportBfprofile} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label className="text-sm text-blue-300">bfprofile</Label>
+                  <Textarea
+                    placeholder="bfprofile1..."
+                    value={bfprofilePackage}
+                    onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setBfprofilePackage(e.target.value)}
+                    rows={3}
+                    className="text-sm font-mono"
+                    disabled={importingProfile}
+                    required
+                  />
+                  {!bfprofileValidation.isValid && bfprofilePackage && (
+                    <p className="text-xs text-red-400">{bfprofileValidation.error}</p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm text-blue-300">Package Password</Label>
+                  <PasswordField
+                    placeholder="Minimum 8 characters"
+                    value={bfprofilePassword}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setBfprofilePassword(e.target.value)}
+                    disabled={importingProfile}
+                    required
+                  />
+                </div>
+                <div className="flex justify-end pt-2">
+                  <Button type="submit" disabled={!canImportProfile || importingProfile}>
+                    {importingProfile ? 'Importing…' : 'Import Profile'}
+                  </Button>
+                </div>
+              </form>
+            </ContentCard>
+          )}
 
           {error && (
             <Alert tone="danger">{error}</Alert>
