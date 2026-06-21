@@ -226,7 +226,6 @@ export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
   const signerPanel = (
     <OperatorSignerPanel
       view={view}
-      introMessage="The signer runtime is hosted by the extension background service worker. This page is an operator console over that runtime."
       runtimeControlLabel={runtimeControlLabel}
       copiedField={copiedField}
       onCopyGroupKey={(format) => void handleCopy('group', format)}
