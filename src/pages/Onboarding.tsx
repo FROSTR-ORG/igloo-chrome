@@ -5,7 +5,6 @@ import {
   AppHeader,
   Button,
   ContentCard,
-  CRITICAL_E2E_TEST_IDS,
   Input,
   Label,
   PageLayout,
