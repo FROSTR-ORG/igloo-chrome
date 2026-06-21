@@ -85,8 +85,6 @@ export default function OnboardingPage() {
   const [connecting, setConnecting] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [importingProfile, setImportingProfile] = React.useState(false);
-  const [activatingProfileId, setActivatingProfileId] = React.useState<string | null>(null);
-  const [deletingProfileId, setDeletingProfileId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const onboardValidation = React.useMemo(
@@ -179,14 +177,11 @@ export default function OnboardingPage() {
   }
 
   async function onActivateExisting(profileId: string) {
-    setActivatingProfileId(profileId);
     setError(null);
     try {
       await activateProfile(profileId);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setActivatingProfileId(null);
     }
   }
 
@@ -216,7 +211,6 @@ export default function OnboardingPage() {
     if (!confirmed) {
       return;
     }
-    setDeletingProfileId(profileId);
     setError(null);
     try {
       await deleteProfile(profileId);
@@ -227,8 +221,6 @@ export default function OnboardingPage() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDeletingProfileId(null);
     }
   }
 
@@ -406,7 +398,20 @@ export default function OnboardingPage() {
                     <p className="text-xs text-red-400">{onboardPasswordValidation.error}</p>
                   )}
                 </div>
-                <div className="flex justify-end pt-2">
+                <div className="flex justify-end gap-2 pt-2">
+                  {profiles.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        setShowOnboard(false);
+                        setOnboardPackage('');
+                        setOnboardPassword('');
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  )}
                   <Button type="submit" disabled={!canConnectOnboard || connecting}>
                     {connecting ? 'Connecting…' : 'Connect'}
                   </Button>
@@ -446,7 +451,20 @@ export default function OnboardingPage() {
                     required
                   />
                 </div>
-                <div className="flex justify-end pt-2">
+                <div className="flex justify-end gap-2 pt-2">
+                  {profiles.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        setShowImport(false);
+                        setBfprofilePackage('');
+                        setBfprofilePassword('');
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  )}
                   <Button type="submit" disabled={!canImportProfile || importingProfile}>
                     {importingProfile ? 'Importing…' : 'Import Profile'}
                   </Button>
