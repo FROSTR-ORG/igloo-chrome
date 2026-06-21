@@ -16,14 +16,14 @@ export function createRuntimeAccess(input: {
 
   async function buildRuntimeProfile(): Promise<RuntimeBuild | null> {
     const activeProfile = await profileService.loadActiveRuntimeProfile();
-    if (!activeProfile?.runtimeProfile || !activeProfile.payload) {
+    if (!activeProfile?.runtimeProfile || !activeProfile.payload || !activeProfile.sessionKeyB64) {
       return null;
     }
     return {
       profile: activeProfile.runtimeProfile,
       runtimeProfile: activeProfile.runtimeProfile,
       localPayload: activeProfile.payload,
-      sessionKeyB64: activeProfile.sessionKeyB64!,
+      sessionKeyB64: activeProfile.sessionKeyB64,
       restored:
         typeof activeProfile.runtimeProfile.runtimeSnapshotJson === 'string' &&
         activeProfile.runtimeProfile.runtimeSnapshotJson.trim().length > 0,
