@@ -30,7 +30,7 @@ export function activationFailure(
   };
 }
 
-export function profileKey(profile: {
+export function profileFingerprint(profile: {
   groupPublicKey?: string;
   publicKey?: string;
   relays: string[];

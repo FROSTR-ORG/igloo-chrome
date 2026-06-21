@@ -26,7 +26,7 @@ import {
 } from '@/extension/protocol';
 import { createPendingBootDiagnostics, attachDiagnostics } from '@/lib/runtime-host/diagnostics';
 import {
-  profileKey,
+  profileIdKey,
   resolveRuntimePhase,
   shutdownNode,
   toErrorMessage,
@@ -175,7 +175,7 @@ export function createRuntimeHostController() {
     profilePayload?: BrowserProfilePackagePayload,
     sessionKeyB64?: string
   ) {
-    const nextKey = profileKey(profile);
+    const nextKey = profileIdKey(profile);
     if (signerSessionPromise && signerSessionKey === nextKey) {
       return await signerSessionPromise;
     }

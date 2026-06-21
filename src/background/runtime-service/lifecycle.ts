@@ -11,7 +11,12 @@ import {
   stopRuntime as stopWorkerRuntime,
 } from '@/lib/extension-runtime-host';
 import { createLogger } from '@/lib/observability';
-import { activationFailure, activationStageForRuntime, profileKey, toErrorMessage } from '@/background/utils';
+import {
+  activationFailure,
+  activationStageForRuntime,
+  profileFingerprint,
+  toErrorMessage,
+} from '@/background/utils';
 import type {
   RuntimeServiceResult,
   RuntimeBuild,
@@ -43,7 +48,7 @@ export function createRuntimeLifecycle(input: {
     logger.info('runtime', 'ensure_begin', {
       reason,
       profile_id: built.profile.id,
-      profile_key: profileKey(built.profile),
+      profile_key: profileFingerprint(built.profile),
       restored: built.restored,
     });
     await updateActivationLifecycle(
@@ -92,7 +97,7 @@ export function createRuntimeLifecycle(input: {
     logger.info('runtime', 'ensure_ok', {
       reason,
       profile_id: built.profile.id,
-      profile_key: profileKey(built.profile),
+      profile_key: profileFingerprint(built.profile),
       runtime: runtimeStatus.runtime,
       restored: built.restored,
     });

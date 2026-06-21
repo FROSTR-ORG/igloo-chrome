@@ -11,7 +11,7 @@ export function toErrorMessage(error: unknown, fallback = 'Unknown error'): stri
   return sharedToErrorMessage(error, fallback);
 }
 
-export function profileKey(profile: StoredExtensionProfile) {
+export function profileIdKey(profile: StoredExtensionProfile) {
   return profile.id.trim().toLowerCase();
 }
 
