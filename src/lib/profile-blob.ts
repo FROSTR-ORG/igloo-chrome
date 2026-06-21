@@ -31,6 +31,8 @@ export type LocalProfileBlobPayload = {
   peerPubkey?: string | null;
 };
 
+// OWASP-recommended minimum iteration count for PBKDF2-HMAC-SHA256, used to
+// derive the AES-GCM key that encrypts the local at-rest profile blob.
 const PBKDF2_ITERATIONS = 200_000;
 
 function bytesToBase64(bytes: Uint8Array) {

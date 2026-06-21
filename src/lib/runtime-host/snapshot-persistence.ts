@@ -42,11 +42,16 @@ export async function savePersistedRuntimeSnapshot(
   }
 }
 
+// Retry the snapshot write a few times; a transient storage error or a
+// concurrent profile replacement is usually gone by the next attempt.
+const SNAPSHOT_PERSIST_ATTEMPTS = 3;
+const SNAPSHOT_RETRY_BASE_MS = 50;
+
 export async function persistSessionSnapshot(
   session: Pick<SignerSession, 'profileId' | 'sessionKeyB64' | 'node'>
 ): Promise<PersistedRuntimeSnapshotResult> {
   let lastError: unknown = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < SNAPSHOT_PERSIST_ATTEMPTS; attempt += 1) {
     try {
       const snapshot = getRuntimeSnapshot(session.node);
       const snapshotJson = JSON.stringify(snapshot);
@@ -56,7 +61,7 @@ export async function persistSessionSnapshot(
       };
     } catch (error) {
       lastError = error;
-      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+      await new Promise((resolve) => setTimeout(resolve, SNAPSHOT_RETRY_BASE_MS * (attempt + 1)));
     }
   }
   throw new Error(toErrorMessage(lastError, 'Failed to persist runtime snapshot'));
