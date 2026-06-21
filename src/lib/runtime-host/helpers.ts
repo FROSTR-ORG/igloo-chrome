@@ -3,16 +3,12 @@ import {
   stopSignerNode,
   type BrowserBridgeNode,
 } from '@/lib/igloo';
+import { toErrorMessage as sharedToErrorMessage } from 'igloo-shared';
 import type { RuntimePhase, StoredExtensionProfile } from '@/extension/protocol';
 import type { SignerSession } from '@/lib/runtime-host/types';
 
-export function toErrorMessage(error: unknown, fallback = 'Unknown error') {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === 'string' && error.trim()) return error;
-  if (error && typeof error === 'object' && typeof (error as { message?: unknown }).message === 'string') {
-    return (error as { message: string }).message;
-  }
-  return fallback;
+export function toErrorMessage(error: unknown, fallback = 'Unknown error'): string {
+  return sharedToErrorMessage(error, fallback);
 }
 
 export function profileKey(profile: StoredExtensionProfile) {

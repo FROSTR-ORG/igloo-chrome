@@ -4,8 +4,8 @@ import type {
   RuntimePhase,
   RuntimeStatusSummary,
 } from '@/extension/protocol';
-import { isRecord } from '@/extension/protocol';
 import { publicKeyFromSecret } from '@/lib/igloo';
+import { toErrorMessage as sharedToErrorMessage } from 'igloo-shared';
 
 export const UNKNOWN_RUNTIME_LIFECYCLE: RuntimeLifecycleStatus = {
   bootMode: 'unknown',
@@ -13,11 +13,8 @@ export const UNKNOWN_RUNTIME_LIFECYCLE: RuntimeLifecycleStatus = {
   updatedAt: null,
 };
 
-export function toErrorMessage(error: unknown, fallback = 'Unknown error') {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === 'string' && error.trim()) return error;
-  if (isRecord(error) && typeof error.message === 'string') return error.message;
-  return fallback;
+export function toErrorMessage(error: unknown, fallback = 'Unknown error'): string {
+  return sharedToErrorMessage(error, fallback);
 }
 
 export function activationFailure(
