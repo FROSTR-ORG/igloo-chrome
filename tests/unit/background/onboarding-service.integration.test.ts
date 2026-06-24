@@ -17,6 +17,8 @@ vi.mock('@/lib/extension-runtime-host', () => ({
 import { createOnboardingService } from '@/background/onboarding-service';
 import { publicKeyFromSecret, setInjectedWasmProfileModuleForTests } from '@/lib/igloo';
 
+const sessionKey = {} as CryptoKey;
+
 function makeProfilePayload(overrides: Partial<{
   profileId: string;
   device: Partial<{
@@ -294,7 +296,7 @@ describe('onboarding-service real shared save seam', () => {
           runtimeProfile: {
             id: 'profile-1',
           },
-          sessionKeyB64: 'session-key',
+          sessionKey,
         }),
         replaceStoredProfileBlob,
       } as never,
@@ -389,7 +391,7 @@ describe('onboarding-service real shared save seam', () => {
           runtimeProfile: {
             id: 'profile-1',
           },
-          sessionKeyB64: 'session-key',
+          sessionKey,
         }),
         replaceStoredProfileBlob,
       } as never,

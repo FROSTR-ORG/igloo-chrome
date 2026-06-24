@@ -34,6 +34,8 @@ export const EVENT_TYPE = {
 
 export const DEBUG_COMMAND_TYPE = {
   RELOAD: 'ext.debug.reload',
+  CLEAR_PROFILE_UNLOCKS: 'ext.debug.clearProfileUnlocks',
+  SEED_PROFILE_UNLOCK: 'ext.debug.seedProfileUnlock',
 } as const;
 
 export type RuntimePrepareOperation = 'sign' | 'ecdh';
@@ -205,6 +207,16 @@ export type DebugReloadMessage = {
   type: typeof DEBUG_COMMAND_TYPE.RELOAD;
 };
 
+export type DebugClearProfileUnlocksMessage = {
+  type: typeof DEBUG_COMMAND_TYPE.CLEAR_PROFILE_UNLOCKS;
+};
+
+export type DebugSeedProfileUnlockMessage = {
+  type: typeof DEBUG_COMMAND_TYPE.SEED_PROFILE_UNLOCK;
+  profileId: string;
+  password: string;
+};
+
 export type ExtensionCommand =
   | StateGetMessage
   | DiagnosticsGetMessage
@@ -233,7 +245,9 @@ export type ExtensionCommand =
   | UiOpenDashboardMessage
   | PermissionsClearAllMessage
   | PermissionsRevokeMessage
-  | DebugReloadMessage;
+  | DebugReloadMessage
+  | DebugClearProfileUnlocksMessage
+  | DebugSeedProfileUnlockMessage;
 
 export type ExtensionCommandByType = {
   [K in ExtensionCommand['type']]: Extract<ExtensionCommand, { type: K }>;
@@ -304,6 +318,8 @@ export type ExtensionCommandResultByType = {
   [COMMAND_TYPE.PERMISSIONS_CLEAR_ALL]: boolean;
   [COMMAND_TYPE.PERMISSIONS_REVOKE]: boolean;
   [DEBUG_COMMAND_TYPE.RELOAD]: boolean;
+  [DEBUG_COMMAND_TYPE.CLEAR_PROFILE_UNLOCKS]: boolean;
+  [DEBUG_COMMAND_TYPE.SEED_PROFILE_UNLOCK]: boolean;
 };
 
 export type ExtensionCommandResult<K extends ExtensionCommand['type']> = ExtensionCommandResultByType[K];

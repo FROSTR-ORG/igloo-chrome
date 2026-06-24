@@ -95,7 +95,7 @@ export function createRuntimeMutations(input: {
             result: await executeRuntimeProviderMethod({
               profile: built.runtimeProfile,
               profilePayload: built.localPayload.profile,
-              sessionKeyB64: built.sessionKeyB64,
+              sessionKey: built.sessionKey,
               method: request.type,
               params: request.params ?? {},
             }),

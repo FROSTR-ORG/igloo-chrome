@@ -88,26 +88,9 @@ async function deriveAesKey(password: string, salt: Uint8Array) {
       name: 'AES-GCM',
       length: 256
     },
-    true,
-    ['encrypt', 'decrypt']
-  );
-}
-
-async function importSessionKey(keyB64: string) {
-  return await crypto.subtle.importKey(
-    'raw',
-    base64ToBytes(keyB64),
-    {
-      name: 'AES-GCM',
-      length: 256
-    },
     false,
     ['encrypt', 'decrypt']
   );
-}
-
-async function exportSessionKey(key: CryptoKey) {
-  return bytesToBase64(new Uint8Array(await crypto.subtle.exportKey('raw', key)));
 }
 
 async function encryptWithKey(
@@ -158,7 +141,7 @@ export async function encryptLocalProfileBlobPayload(
   const key = await deriveAesKey(password, salt);
   return {
     blob: await encryptWithKey(payload, key, bytesToBase64(salt)),
-    sessionKeyB64: await exportSessionKey(key)
+    sessionKey: key
   };
 }
 
@@ -170,22 +153,21 @@ export async function decryptLocalProfileBlobWithPassword(
   const payload = await decryptWithKey(blob, key);
   return {
     payload,
-    sessionKeyB64: await exportSessionKey(key)
+    sessionKey: key
   };
 }
 
 export async function decryptLocalProfileBlobWithSessionKey(
   blob: LocalEncryptedProfileBlob,
-  sessionKeyB64: string
+  sessionKey: CryptoKey
 ) {
-  return await decryptWithKey(blob, await importSessionKey(sessionKeyB64));
+  return await decryptWithKey(blob, sessionKey);
 }
 
 export async function reencryptLocalProfileBlobWithSessionKey(
   payload: LocalProfileBlobPayload,
-  sessionKeyB64: string,
+  sessionKey: CryptoKey,
   existingBlob: LocalEncryptedProfileBlob
 ) {
-  const key = await importSessionKey(sessionKeyB64);
-  return await encryptWithKey(payload, key, existingBlob.kdf.saltB64);
+  return await encryptWithKey(payload, sessionKey, existingBlob.kdf.saltB64);
 }

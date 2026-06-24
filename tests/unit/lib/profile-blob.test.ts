@@ -45,16 +45,18 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 describe('profile-blob local at-rest cipher', () => {
-  test('encrypt -> decrypt round-trips with the password', async () => {
-    const { blob, sessionKeyB64 } = await encryptLocalProfileBlobPayload(PAYLOAD, PASSWORD);
-    expect(typeof sessionKeyB64).toBe('string');
+  test('encrypt -> decrypt round-trips with the password and returns a non-extractable session key', async () => {
+    const { blob, sessionKey } = await encryptLocalProfileBlobPayload(PAYLOAD, PASSWORD);
+    expect(sessionKey).toBeInstanceOf(CryptoKey);
+    expect(sessionKey.extractable).toBe(false);
+    await expect(crypto.subtle.exportKey('raw', sessionKey)).rejects.toThrow();
     const { payload } = await decryptLocalProfileBlobWithPassword(blob, PASSWORD);
     expect(payload).toEqual(PAYLOAD);
   });
 
   test('the derived session key decrypts the same blob (no second PBKDF2)', async () => {
-    const { blob, sessionKeyB64 } = await encryptLocalProfileBlobPayload(PAYLOAD, PASSWORD);
-    const payload = await decryptLocalProfileBlobWithSessionKey(blob, sessionKeyB64);
+    const { blob, sessionKey } = await encryptLocalProfileBlobPayload(PAYLOAD, PASSWORD);
+    const payload = await decryptLocalProfileBlobWithSessionKey(blob, sessionKey);
     expect(payload).toEqual(PAYLOAD);
   });
 
@@ -116,7 +118,13 @@ describe('profile-blob local at-rest cipher', () => {
 
   test('rejects a wrong session key', async () => {
     const { blob } = await encryptLocalProfileBlobPayload(PAYLOAD, PASSWORD);
-    const wrongKey = bytesToBase64(crypto.getRandomValues(new Uint8Array(32)));
+    const wrongKey = await crypto.subtle.importKey(
+      'raw',
+      crypto.getRandomValues(new Uint8Array(32)),
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['decrypt'],
+    );
     await expect(decryptLocalProfileBlobWithSessionKey(blob, wrongKey)).rejects.toThrow();
   });
 });

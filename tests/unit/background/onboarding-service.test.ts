@@ -5,13 +5,11 @@ const {
   updateOnboardingLifecycle,
   captureOnboardingProfile,
   saveConnectedBrowserProfileAndMaybeActivate,
-  saveRotatedBrowserProfileAndMaybeActivate,
 } = vi.hoisted(() => ({
   updateActivationLifecycle: vi.fn(),
   updateOnboardingLifecycle: vi.fn(),
   captureOnboardingProfile: vi.fn(),
   saveConnectedBrowserProfileAndMaybeActivate: vi.fn(),
-  saveRotatedBrowserProfileAndMaybeActivate: vi.fn(),
 }));
 
 vi.mock('@/extension/storage', () => ({
@@ -28,11 +26,12 @@ vi.mock('@/lib/igloo', async () => {
   return {
     ...actual,
     saveConnectedBrowserProfileAndMaybeActivate,
-    saveRotatedBrowserProfileAndMaybeActivate,
   };
 });
 
 import { createOnboardingService, OnboardingServiceError } from '@/background/onboarding-service';
+
+const sessionKey = {} as CryptoKey;
 
 function makeProfilePayload(overrides: Partial<{
   profileId: string;
@@ -75,20 +74,6 @@ describe('onboarding-service', () => {
     updateActivationLifecycle.mockResolvedValue(undefined);
     updateOnboardingLifecycle.mockResolvedValue(undefined);
     saveConnectedBrowserProfileAndMaybeActivate.mockImplementation(async ({ persistProfile, activate }) => {
-      const profile = await persistProfile({
-        finalized: { storedPayload: { version: 1 } },
-        password: 'secret',
-      });
-      if (activate) {
-        await activate();
-      }
-      return {
-        profile,
-        runtime: null,
-        runtimeWarning: null,
-      };
-    });
-    saveRotatedBrowserProfileAndMaybeActivate.mockImplementation(async ({ persistProfile, activate }) => {
       const profile = await persistProfile({
         finalized: { storedPayload: { version: 1 } },
         password: 'secret',
@@ -413,7 +398,7 @@ describe('onboarding-service', () => {
             signerSettings: {},
             peerPubkey: 'peer-1',
           },
-          sessionKeyB64: 'session-key',
+          sessionKey,
           record: { createdAt: 1 },
         }),
       } as never,
@@ -456,7 +441,7 @@ describe('onboarding-service', () => {
             signerSettings: {},
             peerPubkey: 'peer-1',
           },
-          sessionKeyB64: 'session-key',
+          sessionKey,
           record: { createdAt: 1 },
         }),
       } as never,
@@ -510,34 +495,6 @@ describe('onboarding-service', () => {
     const setRuntimeDesiredActive = vi.fn().mockResolvedValue(undefined);
     const stopRuntime = vi.fn().mockResolvedValue(undefined);
     const publishStateChanged = vi.fn().mockResolvedValue(undefined);
-    saveRotatedBrowserProfileAndMaybeActivate.mockImplementationOnce(
-      async ({ targetProfile, connectedProfilePayload, persistProfile, activate }) => {
-        const profile = await persistProfile({
-          finalized: {
-            storedPayload: {
-              version: 1,
-              profile: {
-                ...connectedProfilePayload,
-                device: {
-                  ...connectedProfilePayload.device,
-                  name: targetProfile.label,
-                },
-              },
-              signerSettings: { sign_timeout_secs: 45 },
-              runtimeSnapshotJson: '{"runtime":"new"}',
-              peerPubkey: 'peer-2',
-            },
-          },
-          password: 'session-key',
-        });
-        await activate?.();
-        return {
-          profile,
-          runtime: null,
-          runtimeWarning: null,
-        };
-      },
-    );
     const service = createOnboardingService({
       profileService: {
         loadProfileForReplacement: vi.fn().mockResolvedValue({
@@ -565,7 +522,7 @@ describe('onboarding-service', () => {
           runtimeProfile: {
             sharePublicKey: '22'.repeat(32),
           },
-          sessionKeyB64: 'session-key',
+          sessionKey,
         }),
         replaceStoredProfileBlob,
       } as never,
@@ -602,11 +559,14 @@ describe('onboarding-service', () => {
       expect.objectContaining({
         targetProfileId: 'profile-1',
         nextPayload: expect.objectContaining({
+          runtimeSnapshotJson: '{"runtime":"new"}',
+          peerPubkey: 'peer-2',
           profile: expect.objectContaining({
             profileId: 'profile-2',
             device: expect.objectContaining({ name: 'Original Device' }),
           }),
         }),
+        sessionKey,
       })
     );
     expect(records.has('profile-1')).toBe(false);

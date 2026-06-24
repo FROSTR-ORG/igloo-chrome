@@ -10,27 +10,27 @@ import type { ActiveRuntimeProfile, LoadedRuntimeProfile } from './types';
 export async function loadUnlockedRuntimeProfile(
   profileId: string,
 ): Promise<LoadedRuntimeProfile> {
-  const [record, sessionKeyB64] = await Promise.all([
+  const [record, sessionKey] = await Promise.all([
     loadStoredProfileRecord(profileId),
     loadUnlockedProfileKey(profileId),
   ]);
   if (!record) {
     throw new Error('Selected profile was not found.');
   }
-  if (!sessionKeyB64) {
+  if (!sessionKey) {
     return {
       record,
       payload: null,
       runtimeProfile: null,
-      sessionKeyB64: null,
+      sessionKey: null,
     };
   }
-  const payload = await decryptLocalProfileBlobWithSessionKey(record.blob, sessionKeyB64);
+  const payload = await decryptLocalProfileBlobWithSessionKey(record.blob, sessionKey);
   return {
     record,
     payload,
     runtimeProfile: toRuntimeProfile(payload),
-    sessionKeyB64,
+    sessionKey,
   };
 }
 
@@ -39,7 +39,7 @@ export async function loadProfileForReplacement(
   password?: string | null,
 ) {
   const unlocked = await loadUnlockedRuntimeProfile(profileId);
-  if (unlocked.payload && unlocked.sessionKeyB64) {
+  if (unlocked.payload && unlocked.sessionKey) {
     return unlocked;
   }
   const record = unlocked.record ?? (await loadStoredProfileRecord(profileId));
@@ -59,7 +59,7 @@ export async function loadProfileForReplacement(
     record,
     payload: decrypted.payload,
     runtimeProfile: toRuntimeProfile(decrypted.payload),
-    sessionKeyB64: decrypted.sessionKeyB64,
+    sessionKey: decrypted.sessionKey,
   };
 }
 

@@ -68,7 +68,7 @@ export function createRuntimeLifecycle(input: {
     await ensureWorkerRuntime(
       built.runtimeProfile,
       built.localPayload.profile,
-      built.sessionKeyB64
+      built.sessionKey
     );
     const runtimeStatus = await getRuntimeStatusSnapshot();
     await updateActivationLifecycle(

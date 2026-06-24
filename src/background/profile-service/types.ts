@@ -8,7 +8,7 @@ export type LoadedRuntimeProfile = {
   record: LocalProfileBlobRecord;
   payload: LocalProfileBlobPayload | null;
   runtimeProfile: StoredExtensionProfile | null;
-  sessionKeyB64: string | null;
+  sessionKey: CryptoKey | null;
 };
 
 export type ActiveRuntimeProfile = LoadedRuntimeProfile & {
@@ -17,7 +17,7 @@ export type ActiveRuntimeProfile = LoadedRuntimeProfile & {
 
 export type StoredProfileCreateResult = {
   record: LocalProfileBlobRecord;
-  sessionKeyB64: string;
+  sessionKey: CryptoKey;
   runtimeProfile: StoredExtensionProfile;
   payload: LocalProfileBlobPayload;
 };

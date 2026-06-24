@@ -50,6 +50,6 @@ describe('seed profile helpers', () => {
       createdAt: 123,
       updatedAt: 123,
     });
-    expect(record.sessionKeyB64).toEqual(expect.any(String));
+    expect(record).not.toHaveProperty('sessionKey');
   });
 });

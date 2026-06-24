@@ -17,13 +17,12 @@ import type { LocalProfileBlobRecord } from '@/lib/profile-blob';
 export const PROFILES_STORAGE_KEY = 'igloo.v3.ext.profiles';
 export const ACTIVE_PROFILE_ID_STORAGE_KEY = 'igloo.v3.ext.activeProfileId';
 export const PERMISSIONS_STORAGE_KEY = 'igloo.v3.ext.permissions';
-export const SESSION_UNLOCKS_STORAGE_KEY = 'igloo.v3.ext.sessionUnlocks';
 export const LIFECYCLE_STORAGE_KEY = 'igloo.v3.ext.lifecycle';
 export const LIFECYCLE_HISTORY_STORAGE_KEY = 'igloo.v3.ext.lifecycleHistory';
 export const RUNTIME_DESIRED_ACTIVE_STORAGE_KEY = 'igloo.v3.ext.runtimeDesiredActive';
 const LIFECYCLE_HISTORY_LIMIT = 100;
 type SessionUnlockRecord = {
-  keyB64: string;
+  key: CryptoKey;
   updatedAt: number;
 };
 const memorySessionUnlocks = new Map<string, SessionUnlockRecord>();
@@ -45,44 +44,6 @@ async function storageRemove(key: string): Promise<void> {
   const chromeApi = getChromeApi();
   if (!chromeApi?.storage?.local?.remove) return;
   await chromeApi.storage.local.remove(key);
-}
-
-async function sessionStorageGet<T>(key: string): Promise<T | undefined> {
-  const chromeApi = getChromeApi();
-  const sessionApi = (chromeApi?.storage as { session?: { get?: (key: string) => Promise<Record<string, unknown>> } } | undefined)?.session;
-  if (!sessionApi?.get) {
-    if (key !== SESSION_UNLOCKS_STORAGE_KEY) return undefined;
-    return Object.fromEntries(memorySessionUnlocks.entries()) as T;
-  }
-  const payload = await sessionApi.get(key);
-  return payload[key] as T | undefined;
-}
-
-async function sessionStorageSet<T>(key: string, value: T): Promise<void> {
-  const chromeApi = getChromeApi();
-  const sessionApi = (chromeApi?.storage as { session?: { set?: (items: Record<string, unknown>) => Promise<void> } } | undefined)?.session;
-  if (!sessionApi?.set) {
-    if (key === SESSION_UNLOCKS_STORAGE_KEY && value && typeof value === 'object') {
-      memorySessionUnlocks.clear();
-      for (const [profileId, record] of Object.entries(value as Record<string, SessionUnlockRecord>)) {
-        memorySessionUnlocks.set(profileId, record);
-      }
-    }
-    return;
-  }
-  await sessionApi.set({ [key]: value });
-}
-
-async function sessionStorageRemove(key: string): Promise<void> {
-  const chromeApi = getChromeApi();
-  const sessionApi = (chromeApi?.storage as { session?: { remove?: (key: string) => Promise<void> } } | undefined)?.session;
-  if (!sessionApi?.remove) {
-    if (key === SESSION_UNLOCKS_STORAGE_KEY) {
-      memorySessionUnlocks.clear();
-    }
-    return;
-  }
-  await sessionApi.remove(key);
 }
 
 export async function loadStoredProfileRecords() {
@@ -152,42 +113,27 @@ export async function deleteStoredProfileRecord(profileId: string) {
   }
 }
 
-async function loadSessionUnlocks() {
-  return (await sessionStorageGet<Record<string, SessionUnlockRecord>>(SESSION_UNLOCKS_STORAGE_KEY)) ?? {};
-}
-
 export async function loadUnlockedProfileKey(profileId: string) {
-  const unlocks = await loadSessionUnlocks();
-  return unlocks[profileId]?.keyB64 ?? null;
+  return memorySessionUnlocks.get(profileId)?.key ?? null;
 }
 
-export async function saveUnlockedProfileKey(profileId: string, keyB64: string) {
-  const unlocks = await loadSessionUnlocks();
-  unlocks[profileId] = {
-    keyB64,
+export async function saveUnlockedProfileKey(profileId: string, key: CryptoKey) {
+  memorySessionUnlocks.set(profileId, {
+    key,
     updatedAt: Date.now()
-  };
-  await sessionStorageSet(SESSION_UNLOCKS_STORAGE_KEY, unlocks);
+  });
 }
 
 export async function clearUnlockedProfileKey(profileId: string) {
-  const unlocks = await loadSessionUnlocks();
-  if (!(profileId in unlocks)) return;
-  delete unlocks[profileId];
-  if (Object.keys(unlocks).length === 0) {
-    await sessionStorageRemove(SESSION_UNLOCKS_STORAGE_KEY);
-    return;
-  }
-  await sessionStorageSet(SESSION_UNLOCKS_STORAGE_KEY, unlocks);
+  memorySessionUnlocks.delete(profileId);
 }
 
 export async function clearUnlockedProfileKeys() {
-  await sessionStorageRemove(SESSION_UNLOCKS_STORAGE_KEY);
+  memorySessionUnlocks.clear();
 }
 
 export async function loadUnlockedProfileIds() {
-  const unlocks = await loadSessionUnlocks();
-  return new Set(Object.keys(unlocks));
+  return new Set(memorySessionUnlocks.keys());
 }
 
 function now() {

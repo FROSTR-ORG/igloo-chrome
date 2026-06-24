@@ -73,6 +73,8 @@ vi.mock('@/lib/extension-runtime-host', () => ({
 
 import { createRuntimeService } from '@/background/runtime-service';
 
+const sessionKey = {} as CryptoKey;
+
 describe('runtime-service', () => {
   const activeProfile = {
     runtimeProfile: {
@@ -87,7 +89,7 @@ describe('runtime-service', () => {
         profileId: 'profile-1',
       },
     },
-    sessionKeyB64: 'session-key',
+    sessionKey,
   };
 
   beforeEach(() => {
@@ -130,7 +132,7 @@ describe('runtime-service', () => {
     expect(ensureRuntime).toHaveBeenCalledWith(
       activeProfile.runtimeProfile,
       activeProfile.payload.profile,
-      activeProfile.sessionKeyB64
+      activeProfile.sessionKey
     );
     expect(updateActivationLifecycle).toHaveBeenCalledWith(
       'restoring_runtime',

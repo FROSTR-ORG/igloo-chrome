@@ -8,7 +8,7 @@ import type { RuntimePhase } from '@/extension/protocol';
 export type SignerSession = {
   key: string;
   profileId: string;
-  sessionKeyB64: string;
+  sessionKey: CryptoKey;
   node: BrowserBridgeNode;
   diagnostics: () => ObservabilityEvent[];
   droppedDiagnostics: () => number;

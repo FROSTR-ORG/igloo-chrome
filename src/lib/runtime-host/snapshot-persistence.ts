@@ -15,21 +15,21 @@ export type PersistedRuntimeSnapshotResult = {
 };
 
 export async function savePersistedRuntimeSnapshot(
-  session: Pick<SignerSession, 'profileId' | 'sessionKeyB64'>,
+  session: Pick<SignerSession, 'profileId' | 'sessionKey'>,
   snapshotJson: string
 ) {
   const record = await loadStoredProfileRecord(session.profileId);
   if (!record) {
     throw new Error(`Stored profile ${session.profileId} was not found.`);
   }
-  const payload = await decryptLocalProfileBlobWithSessionKey(record.blob, session.sessionKeyB64);
+  const payload = await decryptLocalProfileBlobWithSessionKey(record.blob, session.sessionKey);
   const nextPayload = {
     ...payload,
     runtimeSnapshotJson: snapshotJson,
   };
   const nextBlob = await reencryptLocalProfileBlobWithSessionKey(
     nextPayload,
-    session.sessionKeyB64,
+    session.sessionKey,
     record.blob
   );
   const saved = await saveStoredProfileRecordIfPresent({
@@ -48,7 +48,7 @@ const SNAPSHOT_PERSIST_ATTEMPTS = 3;
 const SNAPSHOT_RETRY_BASE_MS = 50;
 
 export async function persistSessionSnapshot(
-  session: Pick<SignerSession, 'profileId' | 'sessionKeyB64' | 'node'>
+  session: Pick<SignerSession, 'profileId' | 'sessionKey' | 'node'>
 ): Promise<PersistedRuntimeSnapshotResult> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt < SNAPSHOT_PERSIST_ATTEMPTS; attempt += 1) {
@@ -68,7 +68,7 @@ export async function persistSessionSnapshot(
 }
 
 export function persistSessionSnapshotInBackground(
-  session: Pick<SignerSession, 'profileId' | 'sessionKeyB64' | 'node' | 'persistInFlight' | 'persistQueued'>,
+  session: Pick<SignerSession, 'profileId' | 'sessionKey' | 'node' | 'persistInFlight' | 'persistQueued'>,
   runPersist: () => Promise<void>
 ) {
   if (session.persistInFlight) {

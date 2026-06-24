@@ -1,13 +1,20 @@
 import { getChromeApi } from '@/extension/chrome';
 import { COMMAND_TYPE, DEBUG_COMMAND_TYPE } from '@/extension/protocol';
-import { loadLifecycleHistory, loadLifecycleStatus } from '@/extension/storage';
+import {
+  clearUnlockedProfileKeys,
+  loadLifecycleHistory,
+  loadLifecycleStatus,
+  saveUnlockedProfileKey,
+  setActiveProfileId,
+} from '@/extension/storage';
+import { decryptLocalProfileBlobWithPassword } from '@/lib/profile-blob';
 import type { BackgroundHandlerMap, BackgroundRouterDependencies } from '@/background/router-types';
 import { responseError, responseOk, UNKNOWN_RUNTIME_LIFECYCLE } from '@/background/utils';
 
 export function createStateRouter(
-  input: Pick<BackgroundRouterDependencies, 'runtimeService' | 'stateProjector'>
+  input: Pick<BackgroundRouterDependencies, 'profileService' | 'runtimeService' | 'stateProjector'>
 ): BackgroundHandlerMap {
-  const { runtimeService, stateProjector } = input;
+  const { profileService, runtimeService, stateProjector } = input;
 
   return {
     [COMMAND_TYPE.STATE_GET]: (_message, sendResponse) => {
@@ -55,6 +62,35 @@ export function createStateRouter(
           // Ignore reload failures in test control flow.
         }
       }, 0);
+      return true;
+    },
+    [DEBUG_COMMAND_TYPE.CLEAR_PROFILE_UNLOCKS]: (_message, sendResponse) => {
+      void clearUnlockedProfileKeys()
+        .then(() => stateProjector.publishStateChanged())
+        .then(() => sendResponse(responseOk(true)))
+        .catch((error) => sendResponse(responseError(error)));
+      return true;
+    },
+    [DEBUG_COMMAND_TYPE.SEED_PROFILE_UNLOCK]: (message, sendResponse) => {
+      const profileId = typeof message.profileId === 'string' ? message.profileId.trim().toLowerCase() : '';
+      const password = typeof message.password === 'string' ? message.password : '';
+      if (!profileId || !password) {
+        sendResponse(responseError(new Error('Invalid profile seed unlock payload')));
+        return true;
+      }
+      void (async () => {
+        const record = await profileService.loadStoredProfileRecord(profileId);
+        if (!record) {
+          throw new Error('Selected profile was not found.');
+        }
+        const unlocked = await decryptLocalProfileBlobWithPassword(record.blob, password);
+        await saveUnlockedProfileKey(profileId, unlocked.sessionKey);
+        await setActiveProfileId(profileId);
+        await stateProjector.publishStateChanged();
+        return true;
+      })()
+        .then((result) => sendResponse(responseOk(result)))
+        .catch((error) => sendResponse(responseError(error)));
       return true;
     },
   };

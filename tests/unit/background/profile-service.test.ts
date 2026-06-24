@@ -86,6 +86,8 @@ vi.mock('@/lib/profile-blob', () => ({
 
 import { createProfileService } from '@/background/profile-service';
 
+const sessionKey = {} as CryptoKey;
+
 describe('profile-service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -109,7 +111,7 @@ describe('profile-service', () => {
       record: expect.objectContaining({ id: 'profile-1' }),
       payload: null,
       runtimeProfile: null,
-      sessionKeyB64: null,
+      sessionKey: null,
     });
   });
 
@@ -162,7 +164,7 @@ describe('profile-service', () => {
     const result = await service.replaceStoredProfileBlob({
       targetProfileId: 'profile-1',
       nextPayload: nextPayload as never,
-      sessionKeyB64: 'session-key',
+      sessionKey,
       existingRecord: {
         id: 'profile-1',
         label: 'Old Device',
@@ -179,7 +181,7 @@ describe('profile-service', () => {
         label: 'Rotated Device',
       }),
     );
-    expect(saveUnlockedProfileKey).toHaveBeenCalledWith('profile-2', 'session-key');
+    expect(saveUnlockedProfileKey).toHaveBeenCalledWith('profile-2', sessionKey);
     expect(setActiveProfileId).toHaveBeenCalledWith('profile-2');
     expect(result).toEqual(expect.objectContaining({ id: 'profile-2' }));
   });

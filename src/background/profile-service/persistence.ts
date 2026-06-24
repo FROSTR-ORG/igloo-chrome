@@ -31,7 +31,7 @@ export async function createStoredProfileRecord(
 ): Promise<StoredProfileCreateResult> {
   const normalizedPayload: LocalProfileBlobPayload =
     createStoredProfileRecordPayload(payload);
-  const { blob, sessionKeyB64 } = await encryptLocalProfileBlobPayload(
+  const { blob, sessionKey } = await encryptLocalProfileBlobPayload(
     normalizedPayload,
     password,
   );
@@ -44,7 +44,7 @@ export async function createStoredProfileRecord(
       createdAt: now,
       updatedAt: now,
     } satisfies LocalProfileBlobRecord,
-    sessionKeyB64,
+    sessionKey,
     runtimeProfile: toRuntimeProfile(normalizedPayload),
     payload: normalizedPayload,
   };
@@ -57,7 +57,7 @@ export async function storeProfileBlobAndUnlock(
   await rejectDuplicateProfileId(payload.profile.profileId);
   const created = await createStoredProfileRecord(payload, password);
   await saveStoredProfileRecord(created.record);
-  await saveUnlockedProfileKey(created.record.id, created.sessionKeyB64);
+  await saveUnlockedProfileKey(created.record.id, created.sessionKey);
   await setActiveProfileId(created.record.id);
   return created;
 }
@@ -65,7 +65,7 @@ export async function storeProfileBlobAndUnlock(
 export async function updateStoredProfileBlob(
   profileId: string,
   payload: LocalProfileBlobPayload,
-  sessionKeyB64: string,
+  sessionKey: CryptoKey,
 ) {
   const existing = await loadStoredProfileRecord(profileId);
   if (!existing) {
@@ -73,7 +73,7 @@ export async function updateStoredProfileBlob(
   }
   const blob = await reencryptLocalProfileBlobWithSessionKey(
     payload,
-    sessionKeyB64,
+    sessionKey,
     existing.blob,
   );
   const nextRecord: LocalProfileBlobRecord = {
@@ -89,13 +89,13 @@ export async function updateStoredProfileBlob(
 export async function replaceStoredProfileBlob(input: {
   targetProfileId: string;
   nextPayload: LocalProfileBlobPayload;
-  sessionKeyB64: string;
+  sessionKey: CryptoKey;
   existingRecord: LocalProfileBlobRecord;
 }) {
   await rejectDuplicateProfileId(input.nextPayload.profile.profileId);
   const blob = await reencryptLocalProfileBlobWithSessionKey(
     input.nextPayload,
-    input.sessionKeyB64,
+    input.sessionKey,
     input.existingRecord.blob,
   );
   const nextRecord: LocalProfileBlobRecord = {
@@ -106,7 +106,7 @@ export async function replaceStoredProfileBlob(input: {
     updatedAt: Date.now(),
   };
   await replaceStoredProfileRecord(input.targetProfileId, nextRecord);
-  await saveUnlockedProfileKey(nextRecord.id, input.sessionKeyB64);
+  await saveUnlockedProfileKey(nextRecord.id, input.sessionKey);
   await setActiveProfileId(nextRecord.id);
   return toRuntimeProfile(input.nextPayload);
 }

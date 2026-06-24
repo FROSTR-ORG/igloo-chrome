@@ -14,7 +14,7 @@ export type RuntimeBuild = {
   profile: StoredExtensionProfile;
   runtimeProfile: StoredExtensionProfile;
   localPayload: NonNullable<ActiveRuntimeProfile['payload']>;
-  sessionKeyB64: string;
+  sessionKey: CryptoKey;
   restored: boolean;
 };
 

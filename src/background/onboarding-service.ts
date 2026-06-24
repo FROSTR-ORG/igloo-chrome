@@ -2,10 +2,9 @@ import { updateActivationLifecycle, updateOnboardingLifecycle } from '@/extensio
 import { isRecord, type PendingOnboardingProfile, type StoredExtensionProfile } from '@/extension/protocol';
 import { captureOnboardingProfile } from '@/lib/extension-runtime-host';
 import {
-  createBrowserStoredProfilePayloadSource,
   groupPublicKeyFromPackage,
+  prepareBrowserRotationProfilePayload,
   saveConnectedBrowserProfileAndMaybeActivate,
-  saveRotatedBrowserProfileAndMaybeActivate,
 } from '@/lib/igloo';
 import { activationFailure, serviceError, serviceOk, toErrorMessage, type ServiceResult } from '@/background/utils';
 import type { createProfileService } from '@/background/profile-service';
@@ -218,12 +217,11 @@ export function createOnboardingService(input: {
     targetProfileId: string
   ): Promise<RotationCompleteResult> {
     const target = await profileService.loadProfileForReplacement(targetProfileId, null);
-    if (!target.payload || !target.sessionKeyB64) {
+    if (!target.payload || !target.sessionKey) {
       return serviceError(
         new OnboardingServiceError('rotation_target_locked', 'Selected profile is locked.')
       );
     }
-    const sessionKeyB64 = target.sessionKeyB64;
     if (
       groupPublicKeyFromPackage(pendingProfile.profilePayload.groupPackage) !==
       groupPublicKeyFromPackage(target.payload.profile.groupPackage)
@@ -247,41 +245,41 @@ export function createOnboardingService(input: {
     if (shouldActivate) {
       await stopRuntime?.('apply_rotation_update_prepare');
     }
-    const targetProfile = createBrowserStoredProfilePayloadSource({
-      payload: target.payload.profile,
-      label: target.payload.profile.device.name,
-      relays: target.payload.profile.device.relays,
-      manualPeerPolicyOverrides: target.payload.profile.device.manualPeerPolicyOverrides,
-    });
-    const saved = await saveRotatedBrowserProfileAndMaybeActivate({
-      targetProfile: {
-        ...targetProfile,
-        storedPassword: sessionKeyB64,
-        runtimeSnapshotJson: target.payload.runtimeSnapshotJson ?? null,
-        peerPubkey: target.payload.peerPubkey ?? null,
-      },
+    const nextProfilePayload = prepareBrowserRotationProfilePayload({
+      targetProfilePayload: target.payload.profile,
       connectedProfilePayload: pendingProfile.profilePayload,
-      password: sessionKeyB64,
-      signerSettings: target.payload.signerSettings,
-      runtimeSnapshotJson:
-        pendingProfile.runtimeSnapshotJson ?? target.payload.runtimeSnapshotJson ?? null,
-      peerPubkey: pendingProfile.peerPubkey ?? target.payload.peerPubkey ?? null,
-      autoStart: shouldActivate,
-      persistProfile: async ({ finalized }) =>
-        await profileService.replaceStoredProfileBlob({
-          targetProfileId,
-          nextPayload: finalized.storedPayload,
-          sessionKeyB64,
-          existingRecord: target.record,
-        }),
-      ...createActivationCallbacks({
+      targetLabel: target.payload.profile.device.name,
+    });
+    const profile = await profileService.replaceStoredProfileBlob({
+      targetProfileId,
+      nextPayload: {
+        version: 1,
+        profile: nextProfilePayload,
+        signerSettings: target.payload.signerSettings,
+        runtimeSnapshotJson:
+          pendingProfile.runtimeSnapshotJson ?? target.payload.runtimeSnapshotJson ?? null,
+        peerPubkey: pendingProfile.peerPubkey ?? target.payload.peerPubkey ?? null,
+      },
+      sessionKey: target.sessionKey,
+      existingRecord: target.record,
+    });
+    if (shouldActivate) {
+      const activationCallbacks = createActivationCallbacks({
         reason: 'apply_rotation_update',
         profileId: pendingProfile.profilePayload.profileId,
-      }),
-    });
+      });
+      try {
+        await activationCallbacks.activate();
+      } catch (error) {
+        await activationCallbacks.onRuntimeUnavailable({
+          message: 'Profile was saved, but the runtime could not be started.',
+          detail: toErrorMessage(error, 'Runtime activation failed'),
+        });
+      }
+    }
     await publishStateChanged();
     return serviceOk({
-      profile: saved.profile,
+      profile,
     });
   }
 

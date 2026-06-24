@@ -1,6 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
+const sessionKey = {} as CryptoKey;
+
 const {
   clearRuntimePeerPolicyOverridesOnNode,
   connectSignerNode,
@@ -172,7 +174,7 @@ describe('runtime-host controller', () => {
     const controller = createRuntimeHostController();
     controller.setRuntimeHostStatusListener(listener);
 
-    await expect(controller.ensureRuntime(profile as never, undefined, 'session-key')).rejects.toThrow('connect failed');
+    await expect(controller.ensureRuntime(profile as never, undefined, sessionKey)).rejects.toThrow('connect failed');
 
     expect(node.shutdown).toHaveBeenCalled();
     expect(listener).toHaveBeenLastCalledWith({
@@ -184,7 +186,7 @@ describe('runtime-host controller', () => {
   test('returns sign readiness even when background persistence fails', async () => {
     const controller = createRuntimeHostController();
 
-    await controller.ensureRuntime(profile as never, undefined, 'session-key');
+    await controller.ensureRuntime(profile as never, undefined, sessionKey);
     loadStoredProfileRecord.mockRejectedValue(new Error('persist failed'));
 
     await expect(controller.prepareSign()).resolves.toEqual({
@@ -198,12 +200,12 @@ describe('runtime-host controller', () => {
     const controller = createRuntimeHostController();
 
     loadStoredProfileRecord.mockRejectedValue(new Error('persist failed'));
-    await controller.ensureRuntime(profile as never, undefined, 'session-key');
+    await controller.ensureRuntime(profile as never, undefined, sessionKey);
 
     await expect(
       controller.executeProviderMethod({
         profile: profile as never,
-        sessionKeyB64: 'session-key',
+        sessionKey: sessionKey,
         method: 'nostr.signEvent',
         params: {
           event: { kind: 1, content: 'hello' },
@@ -217,7 +219,7 @@ describe('runtime-host controller', () => {
     const controller = createRuntimeHostController();
     controller.setRuntimeHostStatusListener(listener);
 
-    await controller.ensureRuntime(profile as never, undefined, 'session-key');
+    await controller.ensureRuntime(profile as never, undefined, sessionKey);
     loadStoredProfileRecord.mockRejectedValue(new Error('persist failed'));
 
     await expect(controller.stopRuntime()).resolves.toEqual({ runtime: 'cold' });
@@ -253,7 +255,7 @@ describe('runtime-host controller', () => {
     });
     const controller = createRuntimeHostController();
 
-    await controller.ensureRuntime(profile as never, undefined, 'session-key');
+    await controller.ensureRuntime(profile as never, undefined, sessionKey);
     const session = await controller._private.requireSession();
     node.emit('runtime-status', createReadyStatus());
     node.emit('runtime-status', createReadyStatus());
@@ -275,7 +277,7 @@ describe('runtime-host controller', () => {
 
     controller.setRuntimeHostStatusListener(listenerOne);
     controller.setRuntimeHostStatusListener(listenerTwo);
-    await controller.ensureRuntime(profile as never, undefined, 'session-key');
+    await controller.ensureRuntime(profile as never, undefined, sessionKey);
 
     expect(listenerOne).not.toHaveBeenCalled();
     expect(listenerTwo).toHaveBeenCalledWith({
@@ -297,7 +299,7 @@ describe('runtime-host controller', () => {
       });
     const controller = createRuntimeHostController();
 
-    await controller.ensureRuntime(profile as never, undefined, 'session-key');
+    await controller.ensureRuntime(profile as never, undefined, sessionKey);
     const session = await controller._private.requireSession();
     node.emit('runtime-status', createReadyStatus());
     node.emit('runtime-status', createReadyStatus());
@@ -322,7 +324,7 @@ describe('runtime-host controller', () => {
     const controller = createRuntimeHostController();
 
     // Kick off bootstrap but do not await it; block it inside connect.
-    const ensurePromise = controller.ensureRuntime(profile as never, undefined, 'session-key');
+    const ensurePromise = controller.ensureRuntime(profile as never, undefined, sessionKey);
     await vi.waitFor(() => expect(connectSignerNode).toHaveBeenCalledTimes(1));
 
     // Reads issued while the bootstrap is still connecting.
@@ -348,11 +350,11 @@ describe('runtime-host controller', () => {
     );
     const controller = createRuntimeHostController();
 
-    const first = controller.ensureRuntime(profile as never, undefined, 'session-key');
+    const first = controller.ensureRuntime(profile as never, undefined, sessionKey);
     // Once the first call has set the in-flight session promise (it is now
     // blocked inside connect), a second ensure for the same profile must dedupe.
     await vi.waitFor(() => expect(connectSignerNode).toHaveBeenCalledTimes(1));
-    const second = controller.ensureRuntime(profile as never, undefined, 'session-key');
+    const second = controller.ensureRuntime(profile as never, undefined, sessionKey);
 
     releaseConnect?.();
     await Promise.all([first, second]);

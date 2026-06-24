@@ -27,10 +27,14 @@ import {
 describe('fixture storage helpers', () => {
   const localClear = vi.fn();
   const sessionClear = vi.fn();
+  const sendMessage = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     (globalThis as { chrome?: unknown }).chrome = {
+      runtime: {
+        sendMessage,
+      },
       storage: {
         local: {
           clear: localClear,
@@ -61,6 +65,7 @@ describe('fixture storage helpers', () => {
     };
     localClear.mockResolvedValue(undefined);
     sessionClear.mockResolvedValue(undefined);
+    sendMessage.mockResolvedValue({ ok: true, result: {} });
   });
 
   afterEach(() => {
@@ -79,30 +84,31 @@ describe('fixture storage helpers', () => {
     const storedBlobRecord = { id: 'profile-1', blob: { version: 1 } };
     await seedProfileIntoExtension({} as never, 'extension-id', {
       storedBlobRecord,
-      sessionKeyB64: 'session-key',
     } as never);
 
     expect(buildSeedProfile).not.toHaveBeenCalled();
     expect(createSeededProfileRecord).not.toHaveBeenCalled();
     expect(page.evaluate).toHaveBeenCalledWith(expect.any(Function), {
       storedBlobRecord,
-      sessionKeyB64: 'session-key',
+      password: 'playwright-passphrase',
     });
     expect(page.close).toHaveBeenCalled();
   });
 
-  test('clears both local and session extension storage', async () => {
+  test('clears extension storage and in-memory unlocks', async () => {
     const page = {
       evaluate: vi.fn(async (fn: () => unknown) => await fn()),
       close: vi.fn().mockResolvedValue(undefined),
     };
     openPageForStorage.mockResolvedValue(page);
 
-    await clearExtensionStorageState({} as never, 'extension-id');
-    await clearSessionUnlocksInExtension({} as never, 'extension-id');
+    const context = {};
+    await clearExtensionStorageState(context as never, 'extension-id');
+    await clearSessionUnlocksInExtension(context as never, 'extension-id');
 
     expect(localClear).toHaveBeenCalledTimes(1);
-    expect(sessionClear).toHaveBeenCalledTimes(2);
+    expect(sessionClear).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'ext.debug.clearProfileUnlocks' });
     expect(page.close).toHaveBeenCalledTimes(2);
   });
 });

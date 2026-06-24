@@ -165,7 +165,7 @@ export function createProfilesRouter(
       return respondAsync(sendResponse, async () => {
         const normalized = await profileService.normalizeProfileInput(profile);
         const active = await profileService.loadUnlockedRuntimeProfile(normalized.id);
-        if (!active.payload || !active.sessionKeyB64) {
+        if (!active.payload || !active.sessionKey) {
           throw new Error('Profile is locked.');
         }
         const nextPayload: LocalProfileBlobPayload = {
@@ -182,7 +182,7 @@ export function createProfilesRouter(
           peerPubkey: normalized.peerPubkey ?? active.payload.peerPubkey ?? undefined,
           runtimeSnapshotJson: normalized.runtimeSnapshotJson ?? active.payload.runtimeSnapshotJson,
         };
-        await profileService.updateStoredProfileBlob(normalized.id, nextPayload, active.sessionKeyB64);
+        await profileService.updateStoredProfileBlob(normalized.id, nextPayload, active.sessionKey);
         await stateProjector.publishStateChanged();
         return profileService.toRuntimeProfile(nextPayload);
       });
@@ -240,7 +240,7 @@ export function createProfilesRouter(
         } catch {
           throw new Error('Invalid profile password.');
         }
-        await saveUnlockedProfileKey(profileId, unlocked.sessionKeyB64);
+        await saveUnlockedProfileKey(profileId, unlocked.sessionKey);
         await setActiveProfileId(profileId);
         await setRuntimeDesiredActive(true);
         const ensured = await runtimeService.ensureConfiguredRuntime('unlock_profile');

@@ -173,13 +173,13 @@ export function createRuntimeHostController() {
   async function ensureSignerSession(
     profile: StoredExtensionProfile,
     profilePayload?: BrowserProfilePackagePayload,
-    sessionKeyB64?: string
+    sessionKey?: CryptoKey
   ) {
     const nextKey = profileIdKey(profile);
     if (signerSessionPromise && signerSessionKey === nextKey) {
       return await signerSessionPromise;
     }
-    if (!sessionKeyB64?.trim()) {
+    if (!sessionKey) {
       throw new Error('Missing unlocked session key for runtime profile.');
     }
 
@@ -202,7 +202,7 @@ export function createRuntimeHostController() {
           const session: SignerSession = {
             key: nextKey,
             profileId: profile.id,
-            sessionKeyB64,
+            sessionKey,
             node,
             diagnostics: attached.diagnostics,
             droppedDiagnostics: attached.dropped,
@@ -245,9 +245,9 @@ export function createRuntimeHostController() {
   async function ensureRuntime(
     profile: StoredExtensionProfile,
     profilePayload?: BrowserProfilePackagePayload,
-    sessionKeyB64?: string
+    sessionKey?: CryptoKey
   ) {
-    const session = await ensureSignerSession(profile, profilePayload, sessionKeyB64);
+    const session = await ensureSignerSession(profile, profilePayload, sessionKey);
     refreshAllPeersOnNode(session.node);
     await updateRuntimeState(session);
     return {
@@ -422,9 +422,9 @@ export function createRuntimeHostController() {
   async function decodeProfile(
     profile: StoredExtensionProfile,
     profilePayload?: BrowserProfilePackagePayload,
-    sessionKeyB64?: string
+    sessionKey?: CryptoKey
   ) {
-    const session = await ensureSignerSession(profile, profilePayload, sessionKeyB64);
+    const session = await ensureSignerSession(profile, profilePayload, sessionKey);
     const status = getRuntimeStatus(session.node);
     return {
       publicKey: status.metadata.group_public_key,
@@ -439,12 +439,12 @@ export function createRuntimeHostController() {
   async function executeProviderMethod(input: {
     profile: StoredExtensionProfile;
     profilePayload?: BrowserProfilePackagePayload;
-    sessionKeyB64?: string;
+    sessionKey?: CryptoKey;
     method: ProviderMethod;
     params?: Record<string, unknown>;
   }) {
-    const { profile, profilePayload, sessionKeyB64, method, params } = input;
-    const session = await ensureSignerSession(profile, profilePayload, sessionKeyB64);
+    const { profile, profilePayload, sessionKey, method, params } = input;
+    const session = await ensureSignerSession(profile, profilePayload, sessionKey);
     const result = await executeProviderMethodOnSession({
       session,
       method,
