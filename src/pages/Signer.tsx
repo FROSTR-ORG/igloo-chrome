@@ -4,7 +4,7 @@ import {
   ContentCard,
   OperatorSignerPanel,
   PageLayout,
-  type EventLogRowModel,
+  observabilityEventsToEventRows,
   type PeerReadinessRowModel,
   type PendingOperationRowModel,
   type SignerDashboardViewModel,
@@ -12,7 +12,7 @@ import {
 import { type RuntimeStatusSummary, type StoredPeerPolicy } from '@/extension/protocol';
 import { useStore } from '@/lib/store';
 import { deriveRuntimePresentation } from '@/lib/runtime-activation';
-import { createLogger, type ObservabilityEvent } from '@/lib/observability';
+import { createLogger } from '@/lib/observability';
 import {
   normalizeStoredPeerPolicies,
   peerAllowsAllRequests,
@@ -20,16 +20,6 @@ import {
 } from '@/lib/peer-policy';
 
 const logger = createLogger('igloo.signer-page');
-
-function toEventRow(event: ObservabilityEvent): EventLogRowModel {
-  return {
-    id: `${event.ts}-${event.domain}-${event.event}`,
-    badgeLabel: event.domain,
-    badgeTone: event.level === 'error' ? 'danger' : event.level === 'warn' ? 'warning' : 'info',
-    message: `${event.domain}.${event.event}`,
-    timestampLabel: new Date(event.ts).toLocaleTimeString(),
-  };
-}
 
 function derivePeers(
   summary: RuntimeStatusSummary | null,
@@ -80,13 +70,13 @@ function derivePeers(
 export function SignerPanel({ embedded = false }: { embedded?: boolean }) {
   const { appState, loadRuntimeDiagnostics, profile, refreshRuntimePeers, startRuntime, stopRuntime } = useStore();
   const [copiedField, setCopiedField] = React.useState<'group' | 'share' | null>(null);
-  const [eventRows, setEventRows] = React.useState<EventLogRowModel[]>([]);
+  const [eventRows, setEventRows] = React.useState<ReturnType<typeof observabilityEventsToEventRows>>([]);
   const [actionError, setActionError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     void loadRuntimeDiagnostics()
       .then((diagnostics) => {
-        setEventRows(diagnostics.diagnostics.map(toEventRow));
+        setEventRows(observabilityEventsToEventRows(diagnostics.diagnostics));
       })
       .catch((error) => {
         setActionError(error instanceof Error ? error.message : String(error));
