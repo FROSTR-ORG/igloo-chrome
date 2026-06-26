@@ -4,6 +4,7 @@ import { describe, expect, test, vi } from 'vitest';
 
 const mockUseStore = vi.hoisted(() => vi.fn());
 const mockDeriveRuntimePresentation = vi.hoisted(() => vi.fn());
+const mockObservabilityEventsToEventRows = vi.hoisted(() => vi.fn(() => []));
 
 vi.mock('@/lib/store', () => ({
   useStore: mockUseStore,
@@ -39,6 +40,7 @@ vi.mock('igloo-ui', () => ({
   DashboardConditionBanner: ({ banner }: { banner: { kind: string } }) => (
     <div data-testid={`dashboard-banner-${banner.kind}`} />
   ),
+  observabilityEventsToEventRows: mockObservabilityEventsToEventRows,
 }));
 
 import { SignerPanel } from '@/pages/Signer';
@@ -70,7 +72,15 @@ describe('SignerPanel', () => {
         },
       },
       loadRuntimeDiagnostics: vi.fn().mockResolvedValue({
-        diagnostics: [],
+        diagnostics: [
+          {
+            ts: 1700000000000,
+            level: 'info',
+            component: 'chrome',
+            domain: 'sign',
+            event: 'request_received',
+          },
+        ],
       }),
       profile: {
         groupName: 'Chrome signer',
@@ -96,5 +106,14 @@ describe('SignerPanel', () => {
         'Profile saved, signer unavailable.',
       );
     });
+    expect(mockObservabilityEventsToEventRows).toHaveBeenCalledWith([
+      {
+        ts: 1700000000000,
+        level: 'info',
+        component: 'chrome',
+        domain: 'sign',
+        event: 'request_received',
+      },
+    ]);
   });
 });
