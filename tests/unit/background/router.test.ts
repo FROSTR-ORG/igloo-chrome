@@ -1,9 +1,13 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { COMMAND_TYPE, DEBUG_COMMAND_TYPE, PROVIDER_METHOD } from '@/extension/protocol';
 import { createBackgroundRouter } from '@/background/router';
 
 describe('background router', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   test('routes state and runtime commands to the correct domain handlers', async () => {
     const buildAppState = vi.fn().mockResolvedValue({ configured: false });
     const startRuntime = vi.fn().mockResolvedValue({ ok: true, value: { started: true } });
@@ -92,6 +96,25 @@ describe('background router', () => {
       expect(sendResponse).toHaveBeenCalledWith({ ok: true, result: { configured: false } });
       expect(sendResponse).toHaveBeenCalledWith({ ok: true, result: true });
     });
+  });
+
+  test('omits debug command handlers in release mode', async () => {
+    vi.resetModules();
+    vi.stubEnv('IGLOO_CHROME_RELEASE', '1');
+    const { createStateRouter } = await import('@/background/router-state');
+
+    const handlers = createStateRouter({
+      profileService: {},
+      runtimeService: {},
+      stateProjector: {
+        buildAppState: vi.fn(),
+        publishStateChanged: vi.fn(),
+      },
+    } as never);
+
+    expect(handlers[DEBUG_COMMAND_TYPE.RELOAD]).toBeUndefined();
+    expect(handlers[DEBUG_COMMAND_TYPE.CLEAR_PROFILE_UNLOCKS]).toBeUndefined();
+    expect(handlers[DEBUG_COMMAND_TYPE.SEED_PROFILE_UNLOCK]).toBeUndefined();
   });
 
   test('preserves wire response shape for service success and failure envelopes', async () => {

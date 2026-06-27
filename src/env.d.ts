@@ -4,6 +4,7 @@ interface ImportMetaEnv {
   readonly VITE_IGLOO_VERBOSE?: string;
   readonly VITE_IGLOO_DEBUG?: string;
   readonly VITE_IGLOO_VISUAL?: string;
+  readonly IGLOO_CHROME_RELEASE?: string;
 }
 
 interface ImportMeta {

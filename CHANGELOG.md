@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, adapted for this repository.
 
+## [Unreleased]
+
+### Added
+- Release-mode production package verification strips and checks debug command
+  handlers plus local relay CSP entries before packaging.
+
 ## [0.3.0] - 2026-03-27
 
 ### Added

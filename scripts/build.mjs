@@ -10,6 +10,8 @@ import postcssImport from 'postcss-import';
 import tailwindcss from 'tailwindcss';
 import autoprefixer from 'autoprefixer';
 
+import { createReleaseManifest } from './production-package.mjs';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
@@ -26,6 +28,7 @@ const distCss = path.join(distDir, 'index.css');
 // igloo-ui vendored woff2 there so the refs resolve and Inter renders.
 const iglooFontsDir = path.resolve(rootDir, '../igloo-ui/src/fonts');
 const distFontsDir = path.join(distDir, 'fonts');
+const isReleaseBuild = process.env.IGLOO_CHROME_RELEASE === '1';
 
 // esbuild has no `dedupe` (a Vite/rollup concept). igloo-shared is bundled from
 // source under preserveSymlinks, so it resolves its own nested nostr-tools while
@@ -82,6 +85,14 @@ async function cleanDist() {
 
 async function copyPublic() {
   await fs.cp(publicDir, distDir, { recursive: true });
+}
+
+async function writeManifest() {
+  const sourcePath = path.join(publicDir, 'manifest.json');
+  const destPath = path.join(distDir, 'manifest.json');
+  const source = JSON.parse(await fs.readFile(sourcePath, 'utf8'));
+  const manifest = isReleaseBuild ? createReleaseManifest(source) : source;
+  await fs.writeFile(destPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 }
 
 async function exists(pathToCheck) {
@@ -184,7 +195,8 @@ async function bundleBrowserEntry(entryPoint, outfile, format = 'esm') {
       'import.meta.env.VITE_IGLOO_DEBUG': JSON.stringify(process.env.VITE_IGLOO_DEBUG ?? '0'),
       // Dev/test-only render seam (lib/dev-scenario.ts). Off by default so the
       // shipped extension never carries it; the test prebuild sets it to '1'.
-      'import.meta.env.VITE_IGLOO_VISUAL': JSON.stringify(process.env.VITE_IGLOO_VISUAL ?? '0')
+      'import.meta.env.VITE_IGLOO_VISUAL': JSON.stringify(process.env.VITE_IGLOO_VISUAL ?? '0'),
+      'import.meta.env.IGLOO_CHROME_RELEASE': JSON.stringify(isReleaseBuild ? '1' : '0')
     }
   });
 }
@@ -213,6 +225,7 @@ async function writeHtmlPages() {
 async function buildAll() {
   await cleanDist();
   await copyPublic();
+  await writeManifest();
   await copyWasmAssets();
   await buildCss();
   await copyFonts();

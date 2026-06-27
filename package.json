@@ -7,6 +7,7 @@
     "prepare:workspace": "bash ../../scripts/test-prebuild.sh ensure chrome-runtime",
     "prepare:e2e": "bash ../../scripts/test-prebuild.sh ensure chrome home demo",
     "build:app": "node ./scripts/build.mjs",
+    "build:release": "IGLOO_CHROME_RELEASE=1 npm run build:app && npm run check:production-package",
     "build:app:fast": "npm run prepare:workspace && npm run build:app",
     "dev:raw": "node ./scripts/build.mjs",
     "dev": "npm run prepare:workspace && npm run dev:raw",
@@ -20,8 +21,9 @@
     "test:e2e:raw": "npm --prefix ../../test run test:e2e:igloo-chrome",
     "test:e2e": "npm run prepare:e2e && FROSTR_TEST_PREPARED=1 npm run test:e2e:raw",
     "test:ci": "npm run prepare:e2e && FROSTR_TEST_PREPARED=1 npm run typecheck:local && npm run test:unit:raw && npm run test:e2e:raw && npm run build:app",
+    "check:production-package": "node ./scripts/check-production-package.mjs",
     "package": "node ./scripts/package-release.mjs",
-    "release:candidate": "npm run prepare:e2e && FROSTR_TEST_PREPARED=1 npm run typecheck:local && npm run build:app && npm run test:unit:raw && npm run test:e2e:raw && npm run package"
+    "release:candidate": "npm run prepare:e2e && FROSTR_TEST_PREPARED=1 npm run typecheck:local && npm run test:unit:raw && npm run test:e2e:raw && npm run build:release && npm run package"
   },
   "dependencies": {
     "igloo-shared": "file:../igloo-shared",

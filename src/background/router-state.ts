@@ -15,8 +15,7 @@ export function createStateRouter(
   input: Pick<BackgroundRouterDependencies, 'profileService' | 'runtimeService' | 'stateProjector'>
 ): BackgroundHandlerMap {
   const { profileService, runtimeService, stateProjector } = input;
-
-  return {
+  const handlers: BackgroundHandlerMap = {
     [COMMAND_TYPE.STATE_GET]: (_message, sendResponse) => {
       void stateProjector.buildAppState()
         .then((result) => sendResponse(responseOk(result)))
@@ -53,7 +52,10 @@ export function createStateRouter(
         .catch((error) => sendResponse(responseError(error)));
       return true;
     },
-    [DEBUG_COMMAND_TYPE.RELOAD]: (_message, sendResponse) => {
+  };
+
+  if (import.meta.env.IGLOO_CHROME_RELEASE !== '1') {
+    handlers[DEBUG_COMMAND_TYPE.RELOAD] = (_message, sendResponse) => {
       sendResponse(responseOk(true));
       setTimeout(() => {
         try {
@@ -63,15 +65,15 @@ export function createStateRouter(
         }
       }, 0);
       return true;
-    },
-    [DEBUG_COMMAND_TYPE.CLEAR_PROFILE_UNLOCKS]: (_message, sendResponse) => {
+    };
+    handlers[DEBUG_COMMAND_TYPE.CLEAR_PROFILE_UNLOCKS] = (_message, sendResponse) => {
       void clearUnlockedProfileKeys()
         .then(() => stateProjector.publishStateChanged())
         .then(() => sendResponse(responseOk(true)))
         .catch((error) => sendResponse(responseError(error)));
       return true;
-    },
-    [DEBUG_COMMAND_TYPE.SEED_PROFILE_UNLOCK]: (message, sendResponse) => {
+    };
+    handlers[DEBUG_COMMAND_TYPE.SEED_PROFILE_UNLOCK] = (message, sendResponse) => {
       const profileId = typeof message.profileId === 'string' ? message.profileId.trim().toLowerCase() : '';
       const password = typeof message.password === 'string' ? message.password : '';
       if (!profileId || !password) {
@@ -92,6 +94,8 @@ export function createStateRouter(
         .then((result) => sendResponse(responseOk(result)))
         .catch((error) => sendResponse(responseError(error)));
       return true;
-    },
-  };
+    };
+  }
+
+  return handlers;
 }
