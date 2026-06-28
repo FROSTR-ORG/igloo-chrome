@@ -53,10 +53,10 @@ export interface InitOutput {
     readonly preview_bfprofile_package: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly preview_bfshare_recovery_json: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly validate_relay_profile_json: (a: number, b: number) => [number, number, number, number];
+    readonly rustsecp256k1_v0_10_0_context_create: (a: number) => number;
+    readonly rustsecp256k1_v0_10_0_context_destroy: (a: number) => void;
     readonly rustsecp256k1_v0_10_0_default_error_callback_fn: (a: number, b: number) => void;
     readonly rustsecp256k1_v0_10_0_default_illegal_callback_fn: (a: number, b: number) => void;
-    readonly rustsecp256k1_v0_10_0_context_destroy: (a: number) => void;
-    readonly rustsecp256k1_v0_10_0_context_create: (a: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
