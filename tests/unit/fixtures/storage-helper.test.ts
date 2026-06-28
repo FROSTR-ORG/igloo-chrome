@@ -84,14 +84,13 @@ describe('fixture storage helpers', () => {
     const storedBlobRecord = { id: 'profile-1', blob: { version: 1 } };
     await seedProfileIntoExtension({} as never, 'extension-id', {
       storedBlobRecord,
-      sessionKeyB64: 'seed-session-key',
     } as never);
 
     expect(buildSeedProfile).not.toHaveBeenCalled();
     expect(createSeededProfileRecord).not.toHaveBeenCalled();
     expect(page.evaluate).toHaveBeenCalledWith(expect.any(Function), {
       storedBlobRecord,
-      sessionKeyB64: 'seed-session-key',
+      password: 'playwright-passphrase',
     });
     expect(page.close).toHaveBeenCalled();
   });
@@ -108,8 +107,8 @@ describe('fixture storage helpers', () => {
     await clearSessionUnlocksInExtension(context as never, 'extension-id');
 
     expect(localClear).toHaveBeenCalledTimes(1);
-    expect(sessionClear).toHaveBeenCalledTimes(2);
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sessionClear).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'ext.debug.clearProfileUnlocks' });
     expect(page.close).toHaveBeenCalledTimes(2);
   });
 });
